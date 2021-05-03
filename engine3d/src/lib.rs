@@ -43,7 +43,7 @@ impl Engine {
             model,
         )
     }
-    pub fn camera_mut(&mut self) -> &mut camera::Camera {
+    pub fn camera_mut(&mut self) -> &mut camera::GameCamera {
         &mut self.render.camera
     }
     pub fn set_ambient(&mut self, amb: f32) {

@@ -514,6 +514,7 @@ dependencies = [
  "image",
  "log",
  "notify",
+ "rand",
  "shaderc",
  "tobj",
  "wgpu",

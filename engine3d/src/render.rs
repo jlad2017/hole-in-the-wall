@@ -1,6 +1,6 @@
 use crate::anim::{self, DrawAnimated};
 use crate::assets::{Assets, ModelRef};
-use crate::camera::Camera;
+use crate::camera::GameCamera;
 use crate::model::*;
 use crate::texture;
 use crate::Game;
@@ -22,7 +22,7 @@ pub(crate) struct Render {
     static_render_pipeline: wgpu::RenderPipeline,
     animated_render_pipeline: wgpu::RenderPipeline,
     pub(crate) texture_layout: wgpu::BindGroupLayout,
-    pub(crate) camera: Camera,
+    pub(crate) camera: GameCamera,
     uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
@@ -100,7 +100,7 @@ impl Render {
                 label: Some("texture_bind_group_layout"),
             });
 
-        let camera = Camera {
+        let camera = GameCamera {
             eye: (0.0, 5.0, -10.0).into(),
             target: (0.0, 0.0, 0.0).into(),
             up: cgmath::Vector3::unit_y(),
@@ -679,7 +679,7 @@ impl Uniforms {
         }
     }
 
-    fn update_view_proj(&mut self, camera: &Camera) {
+    fn update_view_proj(&mut self, camera: &GameCamera) {
         self.view_position = camera.eye.to_homogeneous().into();
         let (view, proj) = camera.build_view_projection_matrix();
         self.view = view.into();

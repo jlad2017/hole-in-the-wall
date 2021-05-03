@@ -1,4 +1,8 @@
-pub struct Camera {
+use crate::{events, geom::*};
+use winit;
+use winit::event::VirtualKeyCode as KeyCode;
+
+pub struct GameCamera {
     pub eye: cgmath::Point3<f32>,
     pub target: cgmath::Point3<f32>,
     pub up: cgmath::Vector3<f32>,
@@ -8,12 +12,20 @@ pub struct Camera {
     pub zfar: f32,
 }
 
-impl Camera {
+impl GameCamera {
     pub fn build_view_projection_matrix(&self) -> (cgmath::Matrix4<f32>, cgmath::Matrix4<f32>) {
         let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
         let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
         (view, proj)
     }
+}
+
+pub trait Camera {
+    fn new() -> Self;
+    fn update(&mut self, _events: &events::Events) {}
+    // fn render(&self, _rules: &GameData, _igs: &mut InstanceGroups) {}
+    fn update_camera(&self, _cam: &mut GameCamera) {}
+    fn integrate(&mut self) {}
 }
 
 #[derive(Clone, Debug)]
@@ -35,7 +47,7 @@ impl Camera for OrbitCamera {
             player_rot: Quat::new(1.0, 0.0, 0.0, 0.0),
         }
     }
-    fn update(&mut self, events: &engine3d::events::Events, player: &Player) {
+    fn update(&mut self, events: &events::Events) {
         let (dx, dy) = events.mouse_delta();
         self.pitch += dy / 100.0;
         self.pitch = self.pitch.clamp(-PI / 4.0, PI / 4.0);
@@ -47,11 +59,9 @@ impl Camera for OrbitCamera {
         if events.key_pressed(KeyCode::Down) {
             self.distance += 0.5;
         }
-        self.player_pos = player.body.c;
-        self.player_rot = player.rot;
         // TODO: when player moves, slightly move yaw towards zero
     }
-    fn update_camera(&self, c: &mut engine3d::camera::Camera) {
+    fn update_camera(&self, c: &mut GameCamera) {
         // The camera should point at the player
         c.target = self.player_pos;
         // And rotated around the player's position and offset backwards
