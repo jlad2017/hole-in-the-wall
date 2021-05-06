@@ -21,8 +21,8 @@ impl GameCamera {
 }
 
 pub trait Camera {
-    fn new() -> Self;
-    fn update(&mut self, _events: &events::Events) {}
+    fn new(player_pos: Pos3) -> Self;
+    fn update(&mut self, _events: &events::Events, player_pos: Pos3) {}
     // fn render(&self, _rules: &GameData, _igs: &mut InstanceGroups) {}
     fn update_camera(&self, _cam: &mut GameCamera) {}
     fn integrate(&mut self) {}
@@ -38,16 +38,17 @@ pub struct OrbitCamera {
 }
 
 impl Camera for OrbitCamera {
-    fn new() -> Self {
+    fn new(player_pos: Pos3) -> Self {
         Self {
             pitch: 0.0,
             yaw: 0.0,
-            distance: 5.0,
-            player_pos: Pos3::new(0.0, 0.0, 0.0),
+            distance: 10.0,
+            player_pos,
             player_rot: Quat::new(1.0, 0.0, 0.0, 0.0),
         }
     }
-    fn update(&mut self, events: &events::Events) {
+
+    fn update(&mut self, events: &events::Events, player_pos: Pos3) {
         let (dx, dy) = events.mouse_delta();
         self.pitch += dy / 100.0;
         self.pitch = self.pitch.clamp(-PI / 4.0, PI / 4.0);
@@ -59,13 +60,14 @@ impl Camera for OrbitCamera {
         if events.key_pressed(KeyCode::Down) {
             self.distance += 0.5;
         }
-        // TODO: when player moves, slightly move yaw towards zero
+        self.player_pos = player_pos;
     }
+
     fn update_camera(&self, c: &mut GameCamera) {
         // The camera should point at the player
         c.target = self.player_pos;
         // And rotated around the player's position and offset backwards
-        c.eye = self.player_pos
+        c.eye = self.player_pos * 0.8
             + (self.player_rot
                 * Quat::from(cgmath::Euler::new(
                     cgmath::Rad(self.pitch),
@@ -76,4 +78,3 @@ impl Camera for OrbitCamera {
         // To be fancy, we'd want to make the camera's eye to be an object in the world and whose rotation is locked to point towards the player, and whose distance from the player is locked, and so on---so we'd have player OR camera movements apply accelerations to the camera which could be "beaten" by collision.
     }
 }
-

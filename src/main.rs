@@ -7,10 +7,15 @@ use engine3d::{
     run, Engine, DT,
 };
 use rand;
+use rand::Rng;
 use winit;
 use winit::event::VirtualKeyCode as KeyCode;
 
 const G: f32 = 1.0;
+const WBHS: f32 = 1.0; // wall box half size
+const PBHS: f32 = 0.5; // wall box half size
+const WH: i8 = 3; // wall height in boxes
+const WW: i8 = 6; // wall width in boxes
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Wall {
@@ -20,6 +25,32 @@ pub struct Wall {
 }
 
 impl Wall {
+    pub fn generate_components(init_z: f32, axes: Mat3) -> Vec<Box> {
+        let mut rng = rand::thread_rng();
+        let missing_x = rng.gen_range(0..WW);
+        let missing_y = rng.gen_range(0..WH);
+
+        let mut boxes = vec![];
+        let half_sizes = Vec3::new(WBHS, WBHS, WBHS);
+        for x in 0..WW {
+            for y in 0..WH {
+                if x != missing_x || y != missing_y {
+                    let c = Pos3::new(
+                        x as f32 * 2.0 * WBHS + WBHS - WW as f32 * WBHS,
+                        y as f32 * 2.0 * WBHS + WBHS,
+                        init_z,
+                    );
+                    boxes.push(Box {
+                        c,
+                        axes,
+                        half_sizes,
+                    })
+                }
+            }
+        }
+        boxes
+    }
+
     fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
         for b in &self.body {
             igs.render(
@@ -72,6 +103,48 @@ pub struct Platform {
 }
 
 impl Platform {
+    pub fn generate_bounds(wall_height: i8, wall_width: i8) -> Vec<Platform> {
+        let mut bounds = vec![];
+        let btn = Vec3::new(0.0, 1.0, 0.0); // bottom & top normal vector
+        let lrn = Vec3::new(1.0, 0.0, 0.0); // left & right normal vector
+
+        let top_dist = wall_height as f32 * WBHS * 2.0;
+        let left_dist = wall_width as f32 * WBHS * 2.0;
+        let right_dist = -1.0 * left_dist;
+
+        let b = Platform {
+            body: Plane { n: btn, d: 0.0 },
+            control: (0, 0),
+        };
+        let t = Platform {
+            body: Plane {
+                n: btn,
+                d: top_dist,
+            },
+            control: (0, 0),
+        };
+        let l = Platform {
+            body: Plane {
+                n: lrn,
+                d: left_dist,
+            },
+            control: (0, 0),
+        };
+        let r = Platform {
+            body: Plane {
+                n: lrn,
+                d: right_dist,
+            },
+            control: (0, 0),
+        };
+
+        bounds.push(b);
+        bounds.push(t);
+        bounds.push(l);
+        bounds.push(r);
+        bounds
+    }
+
     fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
         igs.render(
             rules.platform_model,
@@ -103,6 +176,7 @@ impl Platform {
             0
         };
     }
+
     fn integrate(&mut self) {
         self.body.n += Vec3::new(
             self.control.0 as f32 * 0.4 * DT,
@@ -115,13 +189,17 @@ impl Platform {
 
 struct Game<Cam: Camera> {
     wall: Wall,
-    platform: Platform,
+    floor: Platform,
+    // bounds: Vec<Platform>,
     player: Player,
     camera: Cam,
+    wall_velocity: Vec3,
+    ww: Vec<collision::Contact<usize>>,
     pw: Vec<collision::Contact<usize>>,
     fw: Vec<collision::Contact<usize>>,
     pf: Vec<collision::Contact<usize>>,
 }
+
 struct GameData {
     wall_model: engine3d::assets::ModelRef,
     platform_model: engine3d::assets::ModelRef,
@@ -147,11 +225,11 @@ impl Player {
                 model: (
                     // Mat4::from_translation(self.body.c.to_vec() - Vec3::new(0.0, 0.2, 0.0))
                     Mat4::from_translation(self.body.c.to_vec())
-                    // * Mat4::from_nonuniform_scale(
-                    //     self.body.half_sizes.x,
-                    //     self.body.half_sizes.y,
-                    //     self.body.half_sizes.z,
-                    // )
+                        * Mat4::from_nonuniform_scale(
+                            self.body.half_sizes.x,
+                            self.body.half_sizes.y,
+                            self.body.half_sizes.z,
+                        )
                     // * Mat4::from(self.rot)
                 )
                 .into(),
@@ -172,64 +250,82 @@ impl<C: Camera> engine3d::Game for Game<C> {
     type StaticData = GameData;
     fn start(engine: &mut Engine) -> (Self, Self::StaticData) {
         use rand::Rng;
+
         let axes = Matrix3::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        let b1 = Box {
-            c: Pos3::new(0.0, 0.0, 0.0),
-            axes,
-            half_sizes: Vec3::new(1.0, 1.0, 1.0),
-        };
+
+        // create wall
+        let wall_init_z = 20.0;
+        let wall_init_velocity = Vec3::new(0.0, 0.0, -1.5);
+
+        // generate wall components
+        let boxes = Wall::generate_components(wall_init_z, axes);
         let wall = Wall {
-            body: vec![b1],
-            velocity: Vec3::new(0.0, 0.0, 0.0),
+            body: boxes,
+            velocity: wall_init_velocity,
             control: (0, 0),
         };
-        let platform = Platform {
+
+        // create platform
+        let floor = Platform {
             body: Plane {
                 n: Vec3::new(0.0, 1.0, 0.0),
                 d: 0.0,
             },
             control: (0, 0),
         };
+
+        // let bounds = Platform::generate_bounds(wall_height, wall_width);
+
+        // create player
         let player = Player {
             body: Box {
-                c: Pos3::new(0.0, 2.0, 0.0),
+                c: Pos3::new(0.0, PBHS, 0.0),
                 axes: Matrix3::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-                half_sizes: Vec3::new(1.0, 1.0, 1.0),
+                half_sizes: Vec3::new(PBHS, PBHS, PBHS),
             },
             velocity: Vec3::zero(),
             acc: Vec3::zero(),
             omega: Vec3::zero(),
             rot: Quat::new(1.0, 0.0, 0.0, 0.0),
         };
-        let camera = C::new();
-        let mut rng = rand::thread_rng();
-        let wall_model = engine.load_model("wall.obj");
-        let platform_model = engine.load_model("floor.obj");
+
+        // create camera
+        let camera = C::new(player.body.c);
+        let rng = rand::thread_rng();
+
+        // models
+        let wall_model = engine.load_model("box.obj");
+        let floor_model = engine.load_model("floor.obj");
         let player_model = engine.load_model("cube.obj");
         let camera_model = engine.load_model("sphere.obj");
         (
             Self {
                 wall,
-                platform,
+                floor,
+                // bounds,
                 player,
                 camera,
-                // TODO nice this up somehow
-                pm: vec![],
+                wall_velocity: wall_init_velocity,
+                ww: vec![],
+                fw: vec![],
                 pw: vec![],
+                pf: vec![],
             },
             GameData {
                 wall_model,
-                platform_model,
+                platform_model: floor_model,
                 player_model,
                 camera_model,
             },
         )
     }
+
     fn render(&self, rules: &Self::StaticData, igs: &mut InstanceGroups) {
         self.wall.render(rules, igs);
-        self.platform.render(rules, igs);
         self.player.render(rules, igs);
+        self.floor.render(rules, igs);
     }
+
     fn update(&mut self, _rules: &Self::StaticData, engine: &mut Engine) {
         // dbg!(self.player.body);
         // TODO update player acc with controls
@@ -238,17 +334,23 @@ impl<C: Camera> engine3d::Game for Game<C> {
         // self.camera_controller.update(engine);
 
         self.player.acc = Vec3::zero();
-        if engine.events.key_held(KeyCode::W) {
-            self.player.acc.z = 1.0;
-        } else if engine.events.key_held(KeyCode::S) {
-            self.player.acc.z = -1.0;
+
+        let h_disp = Vec3::new(0.05, 0.0, 0.0);
+        let v_disp = Vec3::new(0.0, 0.15, 0.0);
+
+        let top_bound = WH as f32 * WBHS * 2.0;
+        let left_bound = WW as f32 * WBHS - WBHS;
+        let right_bound = -left_bound;
+
+        let psn = self.player.body.c;
+        if engine.events.key_held(KeyCode::A) && psn.x + PBHS + h_disp.x <= left_bound {
+            self.player.body.c += h_disp;
+        } else if engine.events.key_held(KeyCode::D) && psn.x + PBHS - h_disp.x >= right_bound {
+            self.player.body.c -= h_disp;
+        } else if engine.events.key_held(KeyCode::Space) && psn.y + PBHS + v_disp.y <= top_bound {
+            self.player.body.c += v_disp;
         }
 
-        if engine.events.key_held(KeyCode::A) {
-            self.player.acc.x = 1.0;
-        } else if engine.events.key_held(KeyCode::D) {
-            self.player.acc.x = -1.0;
-        }
         if self.player.acc.magnitude2() > 1.0 {
             self.player.acc = self.player.acc.normalize();
         }
@@ -262,10 +364,10 @@ impl<C: Camera> engine3d::Game for Game<C> {
         }
 
         // orbit camera
-        self.camera.update(&engine.events);
+        self.camera.update(&engine.events, self.player.body.c);
 
         self.wall.integrate();
-        self.platform.integrate();
+        self.floor.integrate();
         self.player.integrate();
         self.camera.integrate();
 
@@ -277,27 +379,27 @@ impl<C: Camera> engine3d::Game for Game<C> {
         let mut pv = [self.player.velocity];
 
         // collision between wall and wall
-        collision::gather_contacts_aa(&[self.wall.body], &mut self.ww);
+        // collision::gather_contacts_aa(&[self.wall.body], &mut self.ww);
 
         for b in &self.wall.body {
             // collision between player and wall
             collision::gather_contacts_ab(&pb, &[*b], &mut self.pw);
             // collision between floor and wall
-            collision::gather_contacts_ab(&[*b], &[self.platform.body], &mut self.fw);
+            collision::gather_contacts_ab(&[*b], &[self.floor.body], &mut self.fw);
         }
 
         // collision between player and floor
-        collision::gather_contacts_ab(&pb, &[self.platform.body], &mut self.pf);
+        collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
 
         // restitute between player and moving wall
-        // collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.wall.body], &mut self.pw);
+        // collision::restitute_dyn_dyn(&mut pb, &mut pv, &[self.wall.body], &mut self.pw);
 
-        // restitute between player and platform
-        collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.platform.body], &mut self.pf);
+        // restitute between player and floor
+        collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf);
 
-        println!("wall - wall: {:?}", self.ww);
-        println!("player - wall: {:?}", self.pw);
-        println!("floor - wall: {:?}", self.fw);
+        // println!("wall - wall: {:?}", self.ww);
+        // println!("player - wall: {:?}", self.pw);
+        // println!("floor - wall: {:?}", self.fw);
         println!("player - floor: {:?}", self.pf);
 
         self.player.body = pb[0];
