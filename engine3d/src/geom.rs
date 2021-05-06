@@ -24,8 +24,8 @@ impl Shape for Sphere {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Plane {
-    pub n: Vec3,
-    pub d: f32,
+    pub n: Vec3, // unit vector normal
+    pub d: f32,  // distance of how far along the normal it is
 }
 
 impl Shape for Plane {
@@ -36,9 +36,9 @@ impl Shape for Plane {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Box {
-    pub c: Pos3,
-    pub axes: Mat3,
-    pub half_sizes: Vec3,
+    pub c: Pos3,          // center of box
+    pub axes: Mat3,       // rotation matrix
+    pub half_sizes: Vec3, // how far from the center in each direction
 }
 
 impl Shape for Box {
@@ -117,6 +117,57 @@ impl Collide<Plane> for Sphere {
         } else {
             None
         }
+    }
+}
+
+impl Collide<Plane> for Box {
+    fn touching(&self, p: &Plane) -> bool {
+        // Find the distance of the box's center to the plane
+        let dist = self.c.dot(p.n) - p.d;
+
+        // assumes box is not rotated
+        dist.abs() <= self.half_sizes.x
+            || dist.abs() <= self.half_sizes.y
+            || dist.abs() <= self.half_sizes.z
+    }
+
+    fn disp(&self, p: &Plane) -> Option<Vec3> {
+        // Find the distance of the box's center to the plane
+        let dist = self.c.dot(p.n) - p.d;
+
+        if dist.abs() <= self.half_sizes.x {
+            Some(p.n * (self.half_sizes.x - dist))
+        } else if dist.abs() <= self.half_sizes.y {
+            Some(p.n * (self.half_sizes.y - dist))
+        } else if dist.abs() <= self.half_sizes.z {
+            Some(p.n * (self.half_sizes.z - dist))
+        } else {
+            None
+        }
+    }
+}
+
+impl Collide<Box> for Box {
+    fn touching(&self, b: &Box) -> bool {
+        !((self.c.x - b.c.x).abs() > (self.half_sizes.x - b.half_sizes.x).abs()
+            || (self.c.y - b.c.y).abs() > (self.half_sizes.y - b.half_sizes.y).abs()
+            || (self.c.z - b.c.z).abs() > (self.half_sizes.z - b.half_sizes.z).abs())
+    }
+
+    fn disp(&self, b: &Box) -> Option<Vec3> {
+        // Find the distance of the box's center to the plane
+        // let dist = self.c.dot(p.n) - p.d;
+
+        // if dist.abs() <= self.half_sizes.x {
+        //     Some(p.n * (self.half_sizes.x - dist))
+        // } else if dist.abs() <= self.half_sizes.y {
+        //     Some(p.n * (self.half_sizes.y - dist))
+        // } else if dist.abs() <= self.half_sizes.z {
+        //     Some(p.n * (self.half_sizes.z - dist))
+        // } else {
+        //     None
+        // }
+        None
     }
 }
 

@@ -1,26 +1,86 @@
-use engine3d::{collision, geom::*, render::{InstanceGroups, InstanceRaw}, run, Engine, DT, camera::*};
+use cgmath::Matrix3;
+use engine3d::{
+    camera::*,
+    collision,
+    geom::*,
+    render::{InstanceGroups, InstanceRaw},
+    run, Engine, DT,
+};
 use rand;
 use winit;
 use winit::event::VirtualKeyCode as KeyCode;
 
-const NUM_MARBLES: usize = 10;
 const G: f32 = 1.0;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Wall {
-    pub body: Plane,
+    pub body: Vec<Box>,
+    pub velocity: Vec3,
     control: (i8, i8),
 }
 
 impl Wall {
     fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
+        for b in &self.body {
+            igs.render(
+                rules.wall_model,
+                InstanceRaw {
+                    model: (
+                        Mat4::from_translation(b.c.to_vec())
+                            * Mat4::from_nonuniform_scale(
+                                b.half_sizes.x,
+                                b.half_sizes.y,
+                                b.half_sizes.z,
+                            )
+                        // // * Mat4::from_scale(self.body.r)
+                        // Mat4::from_nonuniform_scale(0.5, 0.05, 0.5)
+                    )
+                    .into(),
+                },
+            );
+        }
+    }
+
+    fn input(&mut self, events: &engine3d::events::Events) {
+        self.control.0 = if events.key_held(KeyCode::A) {
+            -1
+        } else if events.key_held(KeyCode::D) {
+            1
+        } else {
+            0
+        };
+        self.control.1 = if events.key_held(KeyCode::W) {
+            -1
+        } else if events.key_held(KeyCode::S) {
+            1
+        } else {
+            0
+        };
+    }
+
+    fn integrate(&mut self) {
+        for b in &mut self.body {
+            b.c += self.velocity * DT;
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Platform {
+    pub body: Plane,
+    control: (i8, i8),
+}
+
+impl Platform {
+    fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
         igs.render(
-            rules.wall_model,
+            rules.platform_model,
             engine3d::render::InstanceRaw {
                 model: (Mat4::from(cgmath::Quaternion::between_vectors(
                     Vec3::new(0.0, 1.0, 0.0),
                     self.body.n,
-                )) * Mat4::from_translation(Vec3::new(0.0, -0.025, 0.0))
+                )) * Mat4::from_translation(self.body.n * self.body.d)
+                    * Mat4::from_translation(Vec3::new(0.0, -0.025, 0.0))
                     * Mat4::from_nonuniform_scale(0.5, 0.05, 0.5))
                 .into(),
             },
@@ -54,53 +114,24 @@ impl Wall {
 }
 
 struct Game<Cam: Camera> {
-    marbles: Marbles,
     wall: Wall,
+    platform: Platform,
     player: Player,
     camera: Cam,
-    pm: Vec<collision::Contact<usize>>,
     pw: Vec<collision::Contact<usize>>,
-    mm: Vec<collision::Contact<usize>>,
-    mw: Vec<collision::Contact<usize>>,
+    fw: Vec<collision::Contact<usize>>,
+    pf: Vec<collision::Contact<usize>>,
 }
 struct GameData {
-    marble_model: engine3d::assets::ModelRef,
     wall_model: engine3d::assets::ModelRef,
+    platform_model: engine3d::assets::ModelRef,
     player_model: engine3d::assets::ModelRef,
     camera_model: engine3d::assets::ModelRef,
 }
 
 #[derive(Clone, Debug)]
-pub struct Marbles {
-    pub body: Vec<Sphere>,
-    pub velocity: Vec<Vec3>,
-}
-
-impl Marbles {
-    fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
-        igs.render_batch(
-            rules.marble_model,
-            self.body.iter().map(|body| engine3d::render::InstanceRaw {
-                model: (Mat4::from_translation(body.c.to_vec()) * Mat4::from_scale(body.r)).into(),
-            }),
-        );
-    }
-    fn integrate(&mut self) {
-        for vel in self.velocity.iter_mut() {
-            *vel += Vec3::new(0.0, -G, 0.0) * DT;
-        }
-        for (body, vel) in self.body.iter_mut().zip(self.velocity.iter()) {
-            body.c += vel * DT;
-        }
-    }
-    fn iter_mut(&mut self) -> impl Iterator<Item = (&mut Sphere, &mut Vec3)> {
-        self.body.iter_mut().zip(self.velocity.iter_mut())
-    }
-}
-
-#[derive(Clone, Debug)]
 pub struct Player {
-    pub body: Sphere,
+    pub body: Box,
     pub velocity: Vec3,
     pub acc: Vec3,
     pub rot: Quat,
@@ -113,9 +144,16 @@ impl Player {
         igs.render(
             rules.player_model,
             InstanceRaw {
-                model: (Mat4::from_translation(self.body.c.to_vec() - Vec3::new(0.0, 0.2, 0.0))
-                    * Mat4::from_scale(self.body.r)
-                    * Mat4::from(self.rot))
+                model: (
+                    // Mat4::from_translation(self.body.c.to_vec() - Vec3::new(0.0, 0.2, 0.0))
+                    Mat4::from_translation(self.body.c.to_vec())
+                    // * Mat4::from_nonuniform_scale(
+                    //     self.body.half_sizes.x,
+                    //     self.body.half_sizes.y,
+                    //     self.body.half_sizes.z,
+                    // )
+                    // * Mat4::from(self.rot)
+                )
                 .into(),
             },
         );
@@ -134,7 +172,18 @@ impl<C: Camera> engine3d::Game for Game<C> {
     type StaticData = GameData;
     fn start(engine: &mut Engine) -> (Self, Self::StaticData) {
         use rand::Rng;
+        let axes = Matrix3::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let b1 = Box {
+            c: Pos3::new(0.0, 0.0, 0.0),
+            axes,
+            half_sizes: Vec3::new(1.0, 1.0, 1.0),
+        };
         let wall = Wall {
+            body: vec![b1],
+            velocity: Vec3::new(0.0, 0.0, 0.0),
+            control: (0, 0),
+        };
+        let platform = Platform {
             body: Plane {
                 n: Vec3::new(0.0, 1.0, 0.0),
                 d: 0.0,
@@ -142,9 +191,10 @@ impl<C: Camera> engine3d::Game for Game<C> {
             control: (0, 0),
         };
         let player = Player {
-            body: Sphere {
-                c: Pos3::new(0.0, 3.0, 0.0),
-                r: 0.3,
+            body: Box {
+                c: Pos3::new(0.0, 2.0, 0.0),
+                axes: Matrix3::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                half_sizes: Vec3::new(1.0, 1.0, 1.0),
             },
             velocity: Vec3::zero(),
             acc: Vec3::zero(),
@@ -153,41 +203,23 @@ impl<C: Camera> engine3d::Game for Game<C> {
         };
         let camera = C::new();
         let mut rng = rand::thread_rng();
-        let marbles = Marbles {
-            body: (0..NUM_MARBLES)
-                .map(move |_x| {
-                    let x = rng.gen_range(-5.0..5.0);
-                    let y = rng.gen_range(1.0..5.0);
-                    let z = rng.gen_range(-5.0..5.0);
-                    let r = rng.gen_range(0.1..1.0);
-                    Sphere {
-                        c: Pos3::new(x, y, z),
-                        r,
-                    }
-                })
-                .collect::<Vec<_>>(),
-            velocity: vec![Vec3::zero(); NUM_MARBLES],
-        };
-        let wall_model = engine.load_model("floor.obj");
-        let marble_model = engine.load_model("sphere.obj");
-        let player_model = engine.load_model("capsule.obj");
+        let wall_model = engine.load_model("wall.obj");
+        let platform_model = engine.load_model("floor.obj");
+        let player_model = engine.load_model("cube.obj");
         let camera_model = engine.load_model("sphere.obj");
         (
             Self {
-                // camera_controller,
-                marbles,
                 wall,
+                platform,
                 player,
                 camera,
                 // TODO nice this up somehow
-                mm: vec![],
-                mw: vec![],
                 pm: vec![],
                 pw: vec![],
             },
             GameData {
-                marble_model,
                 wall_model,
+                platform_model,
                 player_model,
                 camera_model,
             },
@@ -195,9 +227,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
     }
     fn render(&self, rules: &Self::StaticData, igs: &mut InstanceGroups) {
         self.wall.render(rules, igs);
-        self.marbles.render(rules, igs);
+        self.platform.render(rules, igs);
         self.player.render(rules, igs);
-        // self.camera.render(rules, igs);
     }
     fn update(&mut self, _rules: &Self::StaticData, engine: &mut Engine) {
         // dbg!(self.player.body);
@@ -234,60 +265,44 @@ impl<C: Camera> engine3d::Game for Game<C> {
         self.camera.update(&engine.events);
 
         self.wall.integrate();
+        self.platform.integrate();
         self.player.integrate();
-        self.marbles.integrate();
         self.camera.integrate();
 
-        {
-            use rand::Rng;
-            let mut rng = rand::thread_rng();
-            for (body, vel) in self.marbles.iter_mut() {
-                if (body.c.distance(Pos3::new(0.0, 0.0, 0.0))) >= 40.0 {
-                    body.c = Pos3::new(
-                        rng.gen_range(-5.0..5.0),
-                        rng.gen_range(1.0..5.0),
-                        rng.gen_range(-5.0..5.0),
-                    );
-                    *vel = Vec3::zero();
-                }
-            }
-        }
-        self.mm.clear();
-        self.mw.clear();
-        self.pm.clear();
+        self.ww.clear();
         self.pw.clear();
+        self.fw.clear();
+        self.pf.clear();
         let mut pb = [self.player.body];
         let mut pv = [self.player.velocity];
-        collision::gather_contacts_ab(&pb, &self.marbles.body, &mut self.pm);
-        collision::gather_contacts_ab(&pb, &[self.wall.body], &mut self.pw);
-        collision::gather_contacts_ab(&self.marbles.body, &[self.wall.body], &mut self.mw);
-        collision::gather_contacts_aa(&self.marbles.body, &mut self.mm);
-        collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.wall.body], &mut self.pw);
-        collision::restitute_dyn_stat(
-            &mut self.marbles.body,
-            &mut self.marbles.velocity,
-            &[self.wall.body],
-            &mut self.mw,
-        );
-        collision::restitute_dyns(
-            &mut self.marbles.body,
-            &mut self.marbles.velocity,
-            &mut self.mm,
-        );
-        collision::restitute_dyn_dyn(
-            &mut pb,
-            &mut pv,
-            &mut self.marbles.body,
-            &mut self.marbles.velocity,
-            &mut self.pm,
-        );
+
+        // collision between wall and wall
+        collision::gather_contacts_aa(&[self.wall.body], &mut self.ww);
+
+        for b in &self.wall.body {
+            // collision between player and wall
+            collision::gather_contacts_ab(&pb, &[*b], &mut self.pw);
+            // collision between floor and wall
+            collision::gather_contacts_ab(&[*b], &[self.platform.body], &mut self.fw);
+        }
+
+        // collision between player and floor
+        collision::gather_contacts_ab(&pb, &[self.platform.body], &mut self.pf);
+
+        // restitute between player and moving wall
+        // collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.wall.body], &mut self.pw);
+
+        // restitute between player and platform
+        collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.platform.body], &mut self.pf);
+
+        println!("wall - wall: {:?}", self.ww);
+        println!("player - wall: {:?}", self.pw);
+        println!("floor - wall: {:?}", self.fw);
+        println!("player - floor: {:?}", self.pf);
+
         self.player.body = pb[0];
         self.player.velocity = pv[0];
 
-        for collision::Contact { a: ma, .. } in self.mw.iter() {
-            // apply "friction" to marbles on the ground
-            self.marbles.velocity[*ma] *= 0.995;
-        }
         for collision::Contact { a: pa, .. } in self.pw.iter() {
             // apply "friction" to players on the ground
             assert_eq!(*pa, 0);
@@ -302,6 +317,5 @@ fn main() {
     env_logger::init();
     let title = env!("CARGO_PKG_NAME");
     let window = winit::window::WindowBuilder::new().with_title(title);
-    // run::<GameData, Game<OrbitCamera>>(window, std::path::Path::new("content"));
     run::<GameData, Game<OrbitCamera>>(window, std::path::Path::new("content"));
 }
