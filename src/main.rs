@@ -13,7 +13,7 @@ use winit::event::VirtualKeyCode as KeyCode;
 
 const G: f32 = 1.0;
 const WBHS: f32 = 1.0; // wall box half size
-const PBHS: f32 = 0.5; // wall box half size
+const PBHS: f32 = 0.5; // player box half size
 const WH: i8 = 3; // wall height in boxes
 const WW: i8 = 6; // wall width in boxes
 
