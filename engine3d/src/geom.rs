@@ -207,9 +207,6 @@ impl Collide<Plane> for Box {
 
 impl Collide<Box> for Box {
     fn touching(&self, b: &Box) -> bool {
-        // !((self.c.x - b.c.x).abs() > (self.half_sizes.x - b.half_sizes.x).abs()
-        // || (self.c.y - b.c.y).abs() > (self.half_sizes.y - b.half_sizes.y).abs()
-        // || (self.c.z - b.c.z).abs() > (self.half_sizes.z - b.half_sizes.z).abs())
         // Oriented bounding box collision detection, based on Ericson pp.103-5
         let mut rot = Mat3::zero();
         let mut absrot = Mat3::zero();

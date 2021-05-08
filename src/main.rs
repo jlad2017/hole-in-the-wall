@@ -18,6 +18,7 @@ const PBHS: f32 = 0.5; // player box half size
 const WH: i8 = 3; // wall height in boxes
 const WW: i8 = 6; // wall width in boxes
 
+#[derive(Clone, PartialEq, Debug)]
 enum Mode {
     Menu,
     GamePlay,
@@ -420,28 +421,18 @@ impl<C: Camera> engine3d::Game for Game<C> {
         let mut pb = [self.player.body];
         let mut pv = [self.player.velocity];
 
+        // always check player - floor
+        // collision between player and floor
+        collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
+
+        // restitute between player and floor
+        collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf);
+
         match self.mode {
             Mode::Menu => {
                 self.ps.clear();
-
                 // collision between player and start object
                 collision::gather_contacts_ab(&pb, &[self.start.body], &mut self.ps);
-
-                // collision between player and floor
-                collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
-
-                // restitute between player and floor
-                collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf);
-
-                // if player hits start menu object, start game
-                if !self.ps.is_empty() {
-                    // reset player position
-                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
-                    self.mode = Mode::GamePlay;
-                } else {
-                    self.player.body = pb[0];
-                    self.player.velocity = pv[0];
-                }
             }
             Mode::GamePlay => {
                 self.ww.clear();
@@ -456,54 +447,30 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 // collision between floor and wall
                 collision::gather_contacts_ab(&self.wall.body, &[self.floor.body], &mut self.fw);
 
-                // collision between player and floor
-                collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
-
                 // restitute between player and moving wall
                 // collision::restitute_dyn_dyn(&mut pb, &mut pv, &[self.wall.body], &mut self.pw);
 
-                // restitute between player and floor
-                collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf);
+                // restitute between wall and floor
+                collision::restitute_dyn_stat(
+                    &mut self.wall.body,
+                    &mut self.wall.vels,
+                    &[self.floor.body],
+                    &mut self.pf,
+                );
 
                 // println!("wall - wall: {:?}", self.ww);
                 // println!("player - wall: {:?}", self.pw);
                 // println!("floor - wall: {:?}", self.fw);
-                // println!("player - floor: {:?}", self.pf);
-
-                // if player hits wall, end game
-                if !self.pw.is_empty() {
-                    // TODO: explode wall
-                    // reset player position
-                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
-                    self.mode = Mode::EndScreen
-                } else {
-                    self.player.body = pb[0];
-                    self.player.velocity = pv[0];
-                }
+                println!("player - floor: {:?}", self.pf);
             }
             Mode::EndScreen => {
                 self.ps.clear();
-
                 // collision between player and play again menu object
                 collision::gather_contacts_ab(&pb, &[self.play_again.body], &mut self.ps);
-
-                // collision between player and floor
-                collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
-
-                // restitute between player and floor
-                collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf);
-
-                // if player hits play again menu object, start game
-                if !self.ps.is_empty() {
-                    // reset player position
-                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
-                    self.mode = Mode::GamePlay;
-                } else {
-                    self.player.body = pb[0];
-                    self.player.velocity = pv[0];
-                }
             }
         }
+        self.player.body = pb[0];
+        self.player.velocity = pv[0];
     }
 
     fn update(&mut self, _rules: &Self::StaticData, engine: &mut Engine) {
@@ -555,7 +522,9 @@ impl<C: Camera> engine3d::Game for Game<C> {
         // orbit camera
         self.camera.update(&engine.events, self.player.body.c);
 
-        self.wall.integrate();
+        if self.mode == Mode::GamePlay {
+            self.wall.integrate();
+        }
         self.floor.integrate();
         self.player.integrate();
         self.camera.integrate();
@@ -568,10 +537,33 @@ impl<C: Camera> engine3d::Game for Game<C> {
             // self.player.velocity *= 0.98;
         }
 
-        if !self.pw.is_empty() {
-            // Explode wall
-            for pos in 0..self.wall.body.len() {
-                self.wall.vels[pos] += (self.wall.body[pos].c - self.player.body.c) * 2.0;
+        match self.mode {
+            Mode::Menu => {
+                // if player hits start menu object, start game
+                if !self.ps.is_empty() {
+                    // reset player position
+                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
+                    self.mode = Mode::GamePlay;
+                }
+            }
+            Mode::GamePlay => {
+                if !self.pw.is_empty() {
+                    // Explode wall
+                    for pos in 0..self.wall.body.len() {
+                        self.wall.vels[pos] += (self.wall.body[pos].c - self.player.body.c) * 2.0;
+                    }
+                    // reset player position
+                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
+                    self.mode = Mode::EndScreen
+                }
+            }
+            Mode::EndScreen => {
+                // if player hits play again menu object, start game
+                if !self.ps.is_empty() {
+                    // reset player position
+                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
+                    self.mode = Mode::GamePlay;
+                }
             }
         }
 
