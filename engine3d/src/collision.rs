@@ -9,9 +9,10 @@ pub struct Contact<T: Copy> {
 
 pub fn restitute_dyn_stat<S1: Shape, S2: Shape>(
     ashapes: &mut [S1],
-    avels: &mut [Vec3],
+    avel: &mut [Vec3],
     bshapes: &[S2],
     contacts: &mut [Contact<usize>],
+    bounce: bool,
 ) where
     S1: Collide<S2>,
 {
@@ -19,19 +20,17 @@ pub fn restitute_dyn_stat<S1: Shape, S2: Shape>(
     for c in contacts.iter() {
         let a = c.a;
         let b = c.b;
-        // Are they still touching?  This way we don't need to track disps or anything
-        // at the expense of some extra collision checks
+
         if let Some(disp) = ashapes[a].disp(&bshapes[b]) {
-            // We can imagine we're instantaneously applying a
-            // velocity change to pop the object just above the floor.
-            ashapes[a].translate(disp);
-            // It feels a little weird to be adding displacement (in
-            // units) to velocity (in units/frame), but we'll roll
-            // with it.  We're not exactly modeling a normal force
-            // here but it's something like that.
+            // ashapes[a].translate(disp);
             // avels[a] += disp;
-            // avels[a] -= 2.0 * disp.dot(avels[a]) * disp;
-            println!("{:?}, {:?}", avels[a], disp);
+            // println!("prev {:?}", avel[a]);
+            if bounce {
+                avel[a] -= 2.0 * disp.dot(avel[a]) * disp;
+            } else {
+                avel[a] -= disp.dot(avel[a]) * disp;
+            }
+            // println!("afte {:?}", avel[a]);
         }
     }
 }
@@ -82,10 +81,13 @@ pub fn restitute_dyns<S1: Shape>(
         // cause issues, but those will always be hard to solve with
         // this kind of technique.
         if let Some(disp) = ashapes[a].disp(&ashapes[b]) {
-            ashapes[a].translate(-disp / 2.0);
-            avels[a] -= disp / 2.0;
-            ashapes[b].translate(disp / 2.0);
-            avels[b] += disp / 2.0;
+            let vel_diff = disp.dot(avels[a]).abs() * disp + disp.dot(avels[b]).abs() * disp;
+            avels[a] += vel_diff;
+            avels[b] -= vel_diff;
+            // ashapes[a].translate(-disp / 2.0);
+            // avels[a] -= disp / 2.0;
+            // ashapes[b].translate(disp / 2.0);
+            // avels[b] += disp / 2.0;
         }
     }
 }

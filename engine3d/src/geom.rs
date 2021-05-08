@@ -127,51 +127,51 @@ impl Collide<Plane> for Box {
         // Find the distance of the box's center to the plane
         let dist = self.c.dot(p.n) - p.d;
 
-        // Check if any vertex is below the plane
+        // Check if any vertex is strictly below the plane (not including on the plane)
         let v = self.c
             + self.axes.x * self.half_sizes.x
             + self.axes.y * self.half_sizes.y
             + self.axes.z * self.half_sizes.z;
-        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+        if ((v.dot(p.n) - p.d).signum() - dist.signum()).abs() > 1.5 {
             return true;
         }
         let v = self.c + self.axes.x * self.half_sizes.x + self.axes.y * self.half_sizes.y
             - self.axes.z * self.half_sizes.z;
-        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+        if ((v.dot(p.n) - p.d).signum() - dist.signum()).abs() > 1.5 {
             return true;
         }
         let v = self.c + self.axes.x * self.half_sizes.x - self.axes.y * self.half_sizes.y
             + self.axes.z * self.half_sizes.z;
-        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+        if ((v.dot(p.n) - p.d).signum() - dist.signum()).abs() > 1.5 {
             return true;
         }
         let v = self.c + self.axes.x * self.half_sizes.x
             - self.axes.y * self.half_sizes.y
             - self.axes.z * self.half_sizes.z;
-        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+        if ((v.dot(p.n) - p.d).signum() - dist.signum()).abs() > 1.5 {
             return true;
         }
         let v = self.c - self.axes.x * self.half_sizes.x
             + self.axes.y * self.half_sizes.y
             + self.axes.z * self.half_sizes.z;
-        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+        if ((v.dot(p.n) - p.d).signum() - dist.signum()).abs() > 1.5 {
             return true;
         }
         let v = self.c - self.axes.x * self.half_sizes.x + self.axes.y * self.half_sizes.y
             - self.axes.z * self.half_sizes.z;
-        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+        if ((v.dot(p.n) - p.d).signum() - dist.signum()).abs() > 1.5 {
             return true;
         }
         let v = self.c - self.axes.x * self.half_sizes.x - self.axes.y * self.half_sizes.y
             + self.axes.z * self.half_sizes.z;
-        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+        if ((v.dot(p.n) - p.d).signum() - dist.signum()).abs() > 1.5 {
             return true;
         }
         let v = self.c
             - self.axes.x * self.half_sizes.x
             - self.axes.y * self.half_sizes.y
             - self.axes.z * self.half_sizes.z;
-        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+        if ((v.dot(p.n) - p.d).signum() - dist.signum()).abs() > 1.5 {
             return true;
         }
 
