@@ -17,6 +17,9 @@ const WBHS: f32 = 1.0; // wall box half size
 const PBHS: f32 = 0.5; // player box half size
 const WH: i8 = 3; // wall height in boxes
 const WW: i8 = 6; // wall width in boxes
+const WIV: Vec3 = Vec3::new(0.0, 0.0, -2.0); // initial velocity of wall
+const WIZ: f32 = 20.0; // initial z position of wall
+const WVSF: f32 = 0.5; // wall velocity scaling factor
 
 #[derive(Clone, PartialEq, Debug)]
 enum Mode {
@@ -60,7 +63,7 @@ pub struct Wall {
 }
 
 impl Wall {
-    pub fn generate_components(init_z: f32, axes: Mat3) -> Vec<Box> {
+    pub fn generate_components(axes: Mat3) -> Vec<Box> {
         let mut rng = rand::thread_rng();
         let missing_x = rng.gen_range(0..WW);
         let missing_y = rng.gen_range(0..WH);
@@ -73,7 +76,7 @@ impl Wall {
                     let c = Pos3::new(
                         x as f32 * 2.1 * WBHS + WBHS - WW as f32 * WBHS,
                         y as f32 * 2.0 * WBHS + WBHS,
-                        init_z,
+                        WIZ,
                     );
                     boxes.push(Box {
                         c,
@@ -84,6 +87,12 @@ impl Wall {
             }
         }
         boxes
+    }
+
+    fn reset(&mut self, score: i8) {
+        let n_boxes = self.body.len();
+        self.body = Wall::generate_components(Mat3::one());
+        self.vels = vec![WIV * (score + 1) as f32 * WVSF; n_boxes];
     }
 
     fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
@@ -231,13 +240,13 @@ struct Game<Cam: Camera> {
     // bounds: Vec<Platform>,
     player: Player,
     camera: Cam,
-    wall_velocity: Vec3,
     ps: Vec<collision::Contact<usize>>,
     ww: Vec<collision::Contact<usize>>,
     pw: Vec<collision::Contact<usize>>,
     fw: Vec<collision::Contact<usize>>,
     pf: Vec<collision::Contact<usize>>,
     mode: Mode,
+    score: i8,
 }
 
 struct GameData {
@@ -292,42 +301,37 @@ impl<C: Camera> engine3d::Game for Game<C> {
     fn start(engine: &mut Engine) -> (Self, Self::StaticData) {
         use rand::Rng;
 
-        let axes = Matrix3::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-
         // create menu objects
         let menu_object_half_sizes = Vec3::new(MBHS, MBHS, MBHS);
         let start = MenuObject {
             body: Box {
                 c: Pos3::new(3.0, MBHS, 0.0),
-                axes,
+                axes: Matrix3::one(),
                 half_sizes: menu_object_half_sizes,
             },
         };
         let scores = MenuObject {
             body: Box {
                 c: Pos3::new(-3.0, MBHS, 0.0),
-                axes,
+                axes: Matrix3::one(),
                 half_sizes: menu_object_half_sizes,
             },
         };
         let play_again = MenuObject {
             body: Box {
                 c: Pos3::new(3.0, MBHS, 0.0),
-                axes,
+                axes: Matrix3::one(),
                 half_sizes: menu_object_half_sizes,
             },
         };
 
         // create wall
-        let wall_init_z = 20.0;
-        let wall_init_velocity = Vec3::new(0.0, 0.0, -1.5);
-
         // generate wall components
-        let boxes = Wall::generate_components(wall_init_z, Matrix3::one());
+        let boxes = Wall::generate_components(Matrix3::one());
         let n_boxes = boxes.len();
         let wall = Wall {
             body: boxes,
-            vels: vec![wall_init_velocity; n_boxes],
+            vels: vec![WIV; n_boxes],
             control: (0, 0),
         };
 
@@ -357,7 +361,6 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
         // create camera
         let camera = C::new(player.body.c);
-        let rng = rand::thread_rng();
 
         // models
         // TODO: update .obj and .mtl files
@@ -378,13 +381,13 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 // bounds,
                 player,
                 camera,
-                wall_velocity: wall_init_velocity,
                 ps: vec![],
                 ww: vec![],
                 fw: vec![],
                 pw: vec![],
                 pf: vec![],
                 mode: Mode::Menu,
+                score: 0,
             },
             GameData {
                 menu_object_model,
@@ -410,6 +413,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 self.wall.render(rules, igs);
             }
             Mode::EndScreen => {
+                self.wall.render(rules, igs);
                 self.play_again.render(rules, igs);
                 self.scores.render(rules, igs);
             }
@@ -421,11 +425,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
         let mut pb = [self.player.body];
         let mut pv = [self.player.velocity];
 
-        // always check player - floor
-        // collision between player and floor
+        // always check and restitute player - floor
         collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
-
-        // restitute between player and floor
         collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf);
 
         match self.mode {
@@ -439,18 +440,15 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 self.pw.clear();
                 self.fw.clear();
 
-                // collision between wall and wall
+                // collision
                 // collision::gather_contacts_aa(&[self.wall.body], &mut self.ww);
-
-                // collision between player and wall
+                // player - wall
                 collision::gather_contacts_ab(&pb, &self.wall.body, &mut self.pw);
-                // collision between floor and wall
+                // floor - wall
                 collision::gather_contacts_ab(&self.wall.body, &[self.floor.body], &mut self.fw);
 
-                // restitute between player and moving wall
-                // collision::restitute_dyn_dyn(&mut pb, &mut pv, &[self.wall.body], &mut self.pw);
-
-                // restitute between wall and floor
+                // restitution
+                // wall - floor
                 collision::restitute_dyn_stat(
                     &mut self.wall.body,
                     &mut self.wall.vels,
@@ -461,7 +459,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 // println!("wall - wall: {:?}", self.ww);
                 // println!("player - wall: {:?}", self.pw);
                 // println!("floor - wall: {:?}", self.fw);
-                println!("player - floor: {:?}", self.pf);
+                // println!("player - floor: {:?}", self.pf);
             }
             Mode::EndScreen => {
                 self.ps.clear();
@@ -482,14 +480,14 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
         self.player.acc = Vec3::zero();
 
-        // how much the player moves per button click
+        // how much the player velocity changes per button click
         let h_disp = Vec3::new(0.05, 0.0, 0.0);
         let v_disp = Vec3::new(0.0, 0.15, 0.0);
 
         // player should not go past these bounds
         let top_bound = WH as f32 * WBHS * 2.0;
-        let left_bound = WW as f32 * WBHS - WBHS;
-        let right_bound = -left_bound;
+        let left_bound = WW as f32 * WBHS;
+        let right_bound = -left_bound + WBHS;
 
         // move player
         let psn = self.player.body.c;
@@ -522,7 +520,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
         // orbit camera
         self.camera.update(&engine.events, self.player.body.c);
 
-        if self.mode == Mode::GamePlay {
+        if self.mode != Mode::Menu {
             self.wall.integrate();
         }
         self.floor.integrate();
@@ -541,28 +539,36 @@ impl<C: Camera> engine3d::Game for Game<C> {
             Mode::Menu => {
                 // if player hits start menu object, start game
                 if !self.ps.is_empty() {
+                    self.mode = Mode::GamePlay;
                     // reset player position
                     self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
-                    self.mode = Mode::GamePlay;
                 }
             }
             Mode::GamePlay => {
+                // if player hits wall, end game
                 if !self.pw.is_empty() {
+                    self.mode = Mode::EndScreen;
                     // Explode wall
                     for pos in 0..self.wall.body.len() {
                         self.wall.vels[pos] += (self.wall.body[pos].c - self.player.body.c) * 2.0;
                     }
-                    // reset player position
+                    // TODO: record and write score to file
+                    // reset score and player position
+                    self.score = 0;
                     self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
-                    self.mode = Mode::EndScreen
+                } else if self.wall.body[0].c.z + WBHS < self.player.body.c.z - 2.0 * WBHS {
+                    // if wall passes camera, increment score and reset wall
+                    self.score += 1;
+                    self.wall.reset(self.score);
                 }
             }
             Mode::EndScreen => {
                 // if player hits play again menu object, start game
                 if !self.ps.is_empty() {
-                    // reset player position
-                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
                     self.mode = Mode::GamePlay;
+                    // reset wall and player position
+                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
+                    self.wall.reset(self.score);
                 }
             }
         }
