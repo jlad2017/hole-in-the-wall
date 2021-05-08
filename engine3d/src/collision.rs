@@ -24,12 +24,14 @@ pub fn restitute_dyn_stat<S1: Shape, S2: Shape>(
         if let Some(disp) = ashapes[a].disp(&bshapes[b]) {
             // We can imagine we're instantaneously applying a
             // velocity change to pop the object just above the floor.
-            ashapes[a].translate(disp);
+            // ashapes[a].translate(disp);
             // It feels a little weird to be adding displacement (in
             // units) to velocity (in units/frame), but we'll roll
             // with it.  We're not exactly modeling a normal force
             // here but it's something like that.
-            avels[a] += disp;
+            // avels[a] += disp;
+            avels[a] -= 2.0 * disp.dot(avels[a]) * disp;
+            println!("{:?}, {:?}", avels[a], disp);
         }
     }
 }
@@ -52,10 +54,14 @@ pub fn restitute_dyn_dyn<S1: Shape, S2: Shape>(
         // cause issues, but those will always be hard to solve with
         // this kind of technique.
         if let Some(disp) = ashapes[a].disp(&bshapes[b]) {
-            ashapes[a].translate(-disp / 2.0);
-            avels[a] -= disp / 2.0;
-            bshapes[b].translate(disp / 2.0);
-            bvels[b] += disp / 2.0;
+            // ashapes[a].translate(-disp / 2.0);
+
+            let vel_diff = disp.dot(avels[a]).abs() * disp + disp.dot(bvels[b]).abs() * disp;
+            avels[a] += vel_diff;
+            bvels[b] -= vel_diff;
+            // avels[a] += disp.dot(avels[a]).abs() * disp;
+            // bshapes[b].translate(disp / 2.0);
+            // bvels[b] -= disp.dot(bvels[b]).abs() * disp;
         }
     }
 }

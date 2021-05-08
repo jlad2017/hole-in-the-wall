@@ -6,6 +6,8 @@ pub type Mat4 = cgmath::Matrix4<f32>;
 pub type Quat = cgmath::Quaternion<f32>;
 pub const PI: f32 = std::f32::consts::PI;
 
+pub const EPS: f32 = 0.01;
+
 pub trait Shape {
     fn translate(&mut self, v: Vec3);
 }
@@ -125,22 +127,78 @@ impl Collide<Plane> for Box {
         // Find the distance of the box's center to the plane
         let dist = self.c.dot(p.n) - p.d;
 
+        // Check if any vertex is below the plane
+        let v = self.c
+            + self.axes.x * self.half_sizes.x
+            + self.axes.y * self.half_sizes.y
+            + self.axes.z * self.half_sizes.z;
+        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+            return true;
+        }
+        let v = self.c + self.axes.x * self.half_sizes.x + self.axes.y * self.half_sizes.y
+            - self.axes.z * self.half_sizes.z;
+        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+            return true;
+        }
+        let v = self.c + self.axes.x * self.half_sizes.x - self.axes.y * self.half_sizes.y
+            + self.axes.z * self.half_sizes.z;
+        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+            return true;
+        }
+        let v = self.c + self.axes.x * self.half_sizes.x
+            - self.axes.y * self.half_sizes.y
+            - self.axes.z * self.half_sizes.z;
+        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+            return true;
+        }
+        let v = self.c - self.axes.x * self.half_sizes.x
+            + self.axes.y * self.half_sizes.y
+            + self.axes.z * self.half_sizes.z;
+        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+            return true;
+        }
+        let v = self.c - self.axes.x * self.half_sizes.x + self.axes.y * self.half_sizes.y
+            - self.axes.z * self.half_sizes.z;
+        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+            return true;
+        }
+        let v = self.c - self.axes.x * self.half_sizes.x - self.axes.y * self.half_sizes.y
+            + self.axes.z * self.half_sizes.z;
+        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+            return true;
+        }
+        let v = self.c
+            - self.axes.x * self.half_sizes.x
+            - self.axes.y * self.half_sizes.y
+            - self.axes.z * self.half_sizes.z;
+        if (v.dot(p.n) - p.d).signum() != dist.signum() {
+            return true;
+        }
+
+        false
+
         // assumes box is not rotated
-        dist.abs() <= self.half_sizes.x
-            || dist.abs() <= self.half_sizes.y
-            || dist.abs() <= self.half_sizes.z
+        // dist.abs() <= self.half_sizes.x
+        // || dist.abs() <= self.half_sizes.y
+        // || dist.abs() <= self.half_sizes.z
     }
 
     fn disp(&self, p: &Plane) -> Option<Vec3> {
         // Find the distance of the box's center to the plane
-        let dist = self.c.dot(p.n) - p.d;
+        // let dist = self.c.dot(p.n) - p.d;
 
-        if dist.abs() <= self.half_sizes.x {
-            Some(p.n * (self.half_sizes.x - dist))
-        } else if dist.abs() <= self.half_sizes.y {
-            Some(p.n * (self.half_sizes.y - dist))
-        } else if dist.abs() <= self.half_sizes.z {
-            Some(p.n * (self.half_sizes.z - dist))
+        // if dist.abs() <= self.half_sizes.x {
+        // Some(p.n * (self.half_sizes.x - dist))
+        // } else if dist.abs() <= self.half_sizes.y {
+        // Some(p.n * (self.half_sizes.y - dist))
+        // } else if dist.abs() <= self.half_sizes.z {
+        // Some(p.n * (self.half_sizes.z - dist))
+        // } else {
+        // None
+        // }
+
+        if self.touching(p) {
+            Some(p.n)
         } else {
             None
         }
@@ -149,31 +207,134 @@ impl Collide<Plane> for Box {
 
 impl Collide<Box> for Box {
     fn touching(&self, b: &Box) -> bool {
-        !((self.c.x - b.c.x).abs() > (self.half_sizes.x - b.half_sizes.x).abs()
-            || (self.c.y - b.c.y).abs() > (self.half_sizes.y - b.half_sizes.y).abs()
-            || (self.c.z - b.c.z).abs() > (self.half_sizes.z - b.half_sizes.z).abs())
+        // !((self.c.x - b.c.x).abs() > (self.half_sizes.x - b.half_sizes.x).abs()
+        // || (self.c.y - b.c.y).abs() > (self.half_sizes.y - b.half_sizes.y).abs()
+        // || (self.c.z - b.c.z).abs() > (self.half_sizes.z - b.half_sizes.z).abs())
+        // Oriented bounding box collision detection, based on Ericson pp.103-5
+        let mut rot = Mat3::zero();
+        let mut absrot = Mat3::zero();
+        for i in 0..3 {
+            for j in 0..3 {
+                rot[j][i] = self.axes[i].dot(b.axes[j]);
+            }
+        }
+
+        let mut trans = b.c - self.c;
+        trans = Vec3::new(
+            trans.dot(self.axes[0]),
+            trans.dot(self.axes[1]),
+            trans.dot(self.axes[2]),
+        );
+
+        for i in 0..3 {
+            for j in 0..3 {
+                absrot[j][i] = rot[j][i].abs() + EPS;
+            }
+        }
+
+        for i in 0..3 {
+            let ra = self.half_sizes[i];
+            let rb = b.half_sizes[0] * absrot[0][i]
+                + b.half_sizes[1] * absrot[1][i]
+                + b.half_sizes[2] * absrot[2][i];
+            if trans[i].abs() > ra + rb {
+                return false;
+            }
+        }
+
+        for i in 0..3 {
+            let ra = self.half_sizes[0] * absrot[i][0]
+                + self.half_sizes[1] * absrot[i][1]
+                + self.half_sizes[2] * absrot[i][2];
+            let rb = b.half_sizes[i];
+            if (trans[0] * rot[i][0] + trans[1] * rot[i][1] + trans[2] * rot[i][2]).abs() > ra + rb
+            {
+                return false;
+            }
+        }
+
+        let ra = self.half_sizes[1] * absrot[0][2] + self.half_sizes[2] * absrot[0][1];
+        let rb = b.half_sizes[1] * absrot[2][0] + b.half_sizes[2] * absrot[1][0];
+        if (trans[2] * rot[0][1] - trans[1] * rot[0][2]).abs() > ra + rb {
+            return false;
+        }
+
+        let ra = self.half_sizes[1] * absrot[1][2] + self.half_sizes[2] * absrot[1][1];
+        let rb = b.half_sizes[0] * absrot[2][0] + b.half_sizes[2] * absrot[0][0];
+        if (trans[2] * rot[1][1] - trans[1] * rot[1][2]).abs() > ra + rb {
+            return false;
+        }
+
+        let ra = self.half_sizes[1] * absrot[2][2] + self.half_sizes[2] * absrot[2][1];
+        let rb = b.half_sizes[0] * absrot[1][0] + b.half_sizes[1] * absrot[0][0];
+        if (trans[2] * rot[2][1] - trans[1] * rot[2][2]).abs() > ra + rb {
+            return false;
+        }
+
+        let ra = self.half_sizes[0] * absrot[0][2] + self.half_sizes[2] * absrot[0][0];
+        let rb = b.half_sizes[1] * absrot[2][1] + b.half_sizes[2] * absrot[1][1];
+        if (trans[0] * rot[0][2] - trans[2] * rot[0][0]).abs() > ra + rb {
+            return false;
+        }
+
+        let ra = self.half_sizes[0] * absrot[1][2] + self.half_sizes[2] * absrot[1][0];
+        let rb = b.half_sizes[0] * absrot[2][1] + b.half_sizes[2] * absrot[0][1];
+        if (trans[0] * rot[1][2] - trans[2] * rot[1][0]).abs() > ra + rb {
+            return false;
+        }
+
+        let ra = self.half_sizes[0] * absrot[2][2] + self.half_sizes[2] * absrot[2][0];
+        let rb = b.half_sizes[0] * absrot[1][1] + b.half_sizes[1] * absrot[0][1];
+        if (trans[0] * rot[2][2] - trans[2] * rot[2][0]).abs() > ra + rb {
+            return false;
+        }
+
+        let ra = self.half_sizes[0] * absrot[0][1] + self.half_sizes[1] * absrot[0][0];
+        let rb = b.half_sizes[1] * absrot[2][2] + b.half_sizes[2] * absrot[1][2];
+        if (trans[1] * rot[0][0] - trans[0] * rot[0][1]).abs() > ra + rb {
+            return false;
+        }
+
+        let ra = self.half_sizes[0] * absrot[1][1] + self.half_sizes[1] * absrot[1][0];
+        let rb = b.half_sizes[0] * absrot[2][2] + b.half_sizes[2] * absrot[0][2];
+        if (trans[1] * rot[1][0] - trans[0] * rot[1][1]).abs() > ra + rb {
+            return false;
+        }
+
+        let ra = self.half_sizes[0] * absrot[2][1] + self.half_sizes[1] * absrot[2][0];
+        let rb = b.half_sizes[0] * absrot[1][2] + b.half_sizes[1] * absrot[0][2];
+        if (trans[1] * rot[2][0] - trans[0] * rot[2][1]).abs() > ra + rb {
+            return false;
+        }
+
+        true
     }
 
     fn disp(&self, b: &Box) -> Option<Vec3> {
-        // TODO: replace, this is jank af and not correct LOL
-        // Find the distance between the boxes' centers
-        let offset = b.c - self.c;
-        let dist = offset.magnitude();
-        let distance = if dist == 0.0 { 1.0 } else { dist };
+        // Ensure self and b are not touching, regardless of orientation
+        // Will overcorrect most of the time
+        if self.touching(b) {
+            let disp = self.c - b.c;
+            let dispabs = Vec3::new(disp.x.abs(), disp.y.abs(), disp.z.abs());
 
-        let x_dist = self.half_sizes.x + b.half_sizes.x;
-        let y_dist = self.half_sizes.y + b.half_sizes.y;
-        let z_dist = self.half_sizes.z + b.half_sizes.z;
+            // Get axis of b to consider as normal vector by finding biggest overlap with dispabs
+            let overlap_x = disp.dot(b.axes.x).abs();
+            let overlap_y = disp.dot(b.axes.y).abs();
+            let overlap_z = disp.dot(b.axes.z).abs();
 
-        if dist.abs() <= x_dist {
-            let disp_mag = (x_dist) - distance;
-            Some(offset * (disp_mag / distance))
-        } else if dist.abs() <= y_dist {
-            let disp_mag = y_dist - distance;
-            Some(offset * (disp_mag / distance))
-        } else if dist.abs() <= z_dist {
-            let disp_mag = z_dist - distance;
-            Some(offset * (disp_mag / distance))
+            let mut normal = Vec3::zero();
+            if overlap_x > overlap_y && overlap_x > overlap_z {
+                normal = b.axes.x * disp.dot(b.axes.x).signum();
+            } else if overlap_y > overlap_x && overlap_y > overlap_z {
+                normal = b.axes.y * disp.dot(b.axes.y).signum();
+            } else {
+                normal = b.axes.z * disp.dot(b.axes.z).signum();
+            }
+
+            Some(normal.normalize())
+
+            // let final_dist = self.half_sizes.magnitude() + b.half_sizes.magnitude();
+            // Some(disp.normalize_to(final_dist) - disp)
         } else {
             None
         }

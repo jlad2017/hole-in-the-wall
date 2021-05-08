@@ -53,7 +53,8 @@ impl MenuObject {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Wall {
     pub body: Vec<Box>,
-    pub velocity: Vec3,
+    // pub velocity: Vec3,
+    pub vels: Vec<Vec3>,
     control: (i8, i8),
 }
 
@@ -69,7 +70,7 @@ impl Wall {
             for y in 0..WH {
                 if x != missing_x || y != missing_y {
                     let c = Pos3::new(
-                        x as f32 * 2.0 * WBHS + WBHS - WW as f32 * WBHS,
+                        x as f32 * 2.1 * WBHS + WBHS - WW as f32 * WBHS,
                         y as f32 * 2.0 * WBHS + WBHS,
                         init_z,
                     );
@@ -123,8 +124,8 @@ impl Wall {
     }
 
     fn integrate(&mut self) {
-        for b in &mut self.body {
-            b.c += self.velocity * DT;
+        for (b, v) in &mut self.body.iter_mut().zip(self.vels.iter()) {
+            b.c += v * DT;
         }
     }
 }
@@ -321,10 +322,11 @@ impl<C: Camera> engine3d::Game for Game<C> {
         let wall_init_velocity = Vec3::new(0.0, 0.0, -1.5);
 
         // generate wall components
-        let boxes = Wall::generate_components(wall_init_z, axes);
+        let boxes = Wall::generate_components(wall_init_z, Matrix3::one());
+        let n_boxes = boxes.len();
         let wall = Wall {
             body: boxes,
-            velocity: wall_init_velocity,
+            vels: vec![wall_init_velocity; n_boxes],
             control: (0, 0),
         };
 
@@ -343,7 +345,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
         let player = Player {
             body: Box {
                 c: Pos3::new(0.0, PBHS, 0.0),
-                axes: Matrix3::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                axes: Matrix3::one(),
                 half_sizes: Vec3::new(PBHS, PBHS, PBHS),
             },
             velocity: Vec3::zero(),
@@ -525,11 +527,16 @@ impl<C: Camera> engine3d::Game for Game<C> {
         // move player
         let psn = self.player.body.c;
         if engine.events.key_held(KeyCode::A) && psn.x + PBHS + h_disp.x <= left_bound {
-            self.player.body.c += h_disp;
+            // self.player.body.c += h_disp;
+            self.player.velocity += h_disp;
         } else if engine.events.key_held(KeyCode::D) && psn.x + PBHS - h_disp.x >= right_bound {
-            self.player.body.c -= h_disp;
+            // self.player.body.c -= h_disp;
+            self.player.velocity -= h_disp;
         } else if engine.events.key_held(KeyCode::Space) && psn.y + PBHS + v_disp.y <= top_bound {
-            self.player.body.c += v_disp;
+            // self.player.body.c += v_disp;
+            self.player.velocity += v_disp;
+        } else {
+            self.player.velocity = Vec3::zero();
         }
 
         if self.player.acc.magnitude2() > 1.0 {
@@ -558,7 +565,14 @@ impl<C: Camera> engine3d::Game for Game<C> {
         for collision::Contact { a: pa, .. } in self.pf.iter() {
             // apply "friction" to players on the ground
             assert_eq!(*pa, 0);
-            self.player.velocity *= 0.98;
+            // self.player.velocity *= 0.98;
+        }
+
+        if !self.pw.is_empty() {
+            // Explode wall
+            for pos in 0..self.wall.body.len() {
+                self.wall.vels[pos] += (self.wall.body[pos].c - self.player.body.c) * 2.0;
+            }
         }
 
         self.camera.update_camera(engine.camera_mut());
