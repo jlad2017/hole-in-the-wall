@@ -155,19 +155,28 @@ impl Collide<Box> for Box {
     }
 
     fn disp(&self, b: &Box) -> Option<Vec3> {
-        // Find the distance of the box's center to the plane
-        // let dist = self.c.dot(p.n) - p.d;
+        // TODO: replace, this is jank af and not correct LOL
+        // Find the distance between the boxes' centers
+        let offset = b.c - self.c;
+        let dist = offset.magnitude();
+        let distance = if dist == 0.0 { 1.0 } else { dist };
 
-        // if dist.abs() <= self.half_sizes.x {
-        //     Some(p.n * (self.half_sizes.x - dist))
-        // } else if dist.abs() <= self.half_sizes.y {
-        //     Some(p.n * (self.half_sizes.y - dist))
-        // } else if dist.abs() <= self.half_sizes.z {
-        //     Some(p.n * (self.half_sizes.z - dist))
-        // } else {
-        //     None
-        // }
-        None
+        let x_dist = self.half_sizes.x + b.half_sizes.x;
+        let y_dist = self.half_sizes.y + b.half_sizes.y;
+        let z_dist = self.half_sizes.z + b.half_sizes.z;
+
+        if dist.abs() <= x_dist {
+            let disp_mag = (x_dist) - distance;
+            Some(offset * (disp_mag / distance))
+        } else if dist.abs() <= y_dist {
+            let disp_mag = y_dist - distance;
+            Some(offset * (disp_mag / distance))
+        } else if dist.abs() <= z_dist {
+            let disp_mag = z_dist - distance;
+            Some(offset * (disp_mag / distance))
+        } else {
+            None
+        }
     }
 }
 

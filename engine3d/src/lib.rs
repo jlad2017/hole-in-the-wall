@@ -24,6 +24,7 @@ pub trait Game: Sized {
     type StaticData;
     fn start(engine: &mut Engine) -> (Self, Self::StaticData);
     fn update(&mut self, rules: &Self::StaticData, engine: &mut Engine);
+    fn handle_collision(&mut self);
     fn render(&self, rules: &Self::StaticData, igs: &mut InstanceGroups);
 }
 

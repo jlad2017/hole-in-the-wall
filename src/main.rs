@@ -12,10 +12,43 @@ use winit;
 use winit::event::VirtualKeyCode as KeyCode;
 
 const G: f32 = 1.0;
+const MBHS: f32 = 0.5; // menu box half size
 const WBHS: f32 = 1.0; // wall box half size
 const PBHS: f32 = 0.5; // player box half size
 const WH: i8 = 3; // wall height in boxes
 const WW: i8 = 6; // wall width in boxes
+
+enum Mode {
+    Menu,
+    GamePlay,
+    EndScreen,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct MenuObject {
+    pub body: Box,
+}
+
+impl MenuObject {
+    fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
+        igs.render(
+            rules.menu_object_model,
+            InstanceRaw {
+                model: (
+                    Mat4::from_translation(self.body.c.to_vec())
+                        * Mat4::from_nonuniform_scale(
+                            self.body.half_sizes.x,
+                            self.body.half_sizes.y,
+                            self.body.half_sizes.z,
+                        )
+                    // // * Mat4::from_scale(self.body.r)
+                    // Mat4::from_nonuniform_scale(0.5, 0.05, 0.5)
+                )
+                .into(),
+            },
+        );
+    }
+}
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Wall {
@@ -188,16 +221,21 @@ impl Platform {
 }
 
 struct Game<Cam: Camera> {
+    start: MenuObject,
+    scores: MenuObject,
+    play_again: MenuObject,
     wall: Wall,
     floor: Platform,
     // bounds: Vec<Platform>,
     player: Player,
     camera: Cam,
     wall_velocity: Vec3,
+    ps: Vec<collision::Contact<usize>>,
     ww: Vec<collision::Contact<usize>>,
     pw: Vec<collision::Contact<usize>>,
     fw: Vec<collision::Contact<usize>>,
     pf: Vec<collision::Contact<usize>>,
+    mode: Mode,
 }
 
 struct GameData {
@@ -205,6 +243,7 @@ struct GameData {
     platform_model: engine3d::assets::ModelRef,
     player_model: engine3d::assets::ModelRef,
     camera_model: engine3d::assets::ModelRef,
+    menu_object_model: engine3d::assets::ModelRef,
 }
 
 #[derive(Clone, Debug)]
@@ -253,6 +292,30 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
         let axes = Matrix3::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 
+        // create menu objects
+        let menu_object_half_sizes = Vec3::new(MBHS, MBHS, MBHS);
+        let start = MenuObject {
+            body: Box {
+                c: Pos3::new(3.0, MBHS, 0.0),
+                axes,
+                half_sizes: menu_object_half_sizes,
+            },
+        };
+        let scores = MenuObject {
+            body: Box {
+                c: Pos3::new(-3.0, MBHS, 0.0),
+                axes,
+                half_sizes: menu_object_half_sizes,
+            },
+        };
+        let play_again = MenuObject {
+            body: Box {
+                c: Pos3::new(3.0, MBHS, 0.0),
+                axes,
+                half_sizes: menu_object_half_sizes,
+            },
+        };
+
         // create wall
         let wall_init_z = 20.0;
         let wall_init_velocity = Vec3::new(0.0, 0.0, -1.5);
@@ -294,24 +357,34 @@ impl<C: Camera> engine3d::Game for Game<C> {
         let rng = rand::thread_rng();
 
         // models
+        // TODO: update .obj and .mtl files
+        let menu_object_model = engine.load_model("box.obj");
         let wall_model = engine.load_model("box.obj");
         let floor_model = engine.load_model("floor.obj");
         let player_model = engine.load_model("cube.obj");
         let camera_model = engine.load_model("sphere.obj");
+
+        // create game
         (
             Self {
+                start,
+                scores,
+                play_again,
                 wall,
                 floor,
                 // bounds,
                 player,
                 camera,
                 wall_velocity: wall_init_velocity,
+                ps: vec![],
                 ww: vec![],
                 fw: vec![],
                 pw: vec![],
                 pf: vec![],
+                mode: Mode::Menu,
             },
             GameData {
+                menu_object_model,
                 wall_model,
                 platform_model: floor_model,
                 player_model,
@@ -321,9 +394,114 @@ impl<C: Camera> engine3d::Game for Game<C> {
     }
 
     fn render(&self, rules: &Self::StaticData, igs: &mut InstanceGroups) {
-        self.wall.render(rules, igs);
+        // always render player and floor
         self.player.render(rules, igs);
         self.floor.render(rules, igs);
+
+        match self.mode {
+            Mode::Menu => {
+                self.start.render(rules, igs);
+                self.scores.render(rules, igs);
+            }
+            Mode::GamePlay => {
+                self.wall.render(rules, igs);
+            }
+            Mode::EndScreen => {
+                self.play_again.render(rules, igs);
+                self.scores.render(rules, igs);
+            }
+        }
+    }
+
+    fn handle_collision(&mut self) {
+        self.pf.clear();
+        let mut pb = [self.player.body];
+        let mut pv = [self.player.velocity];
+
+        match self.mode {
+            Mode::Menu => {
+                self.ps.clear();
+
+                // collision between player and start object
+                collision::gather_contacts_ab(&pb, &[self.start.body], &mut self.ps);
+
+                // collision between player and floor
+                collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
+
+                // restitute between player and floor
+                collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf);
+
+                // if player hits start menu object, start game
+                if !self.ps.is_empty() {
+                    // reset player position
+                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
+                    self.mode = Mode::GamePlay;
+                } else {
+                    self.player.body = pb[0];
+                    self.player.velocity = pv[0];
+                }
+            }
+            Mode::GamePlay => {
+                self.ww.clear();
+                self.pw.clear();
+                self.fw.clear();
+
+                // collision between wall and wall
+                // collision::gather_contacts_aa(&[self.wall.body], &mut self.ww);
+
+                // collision between player and wall
+                collision::gather_contacts_ab(&pb, &self.wall.body, &mut self.pw);
+                // collision between floor and wall
+                collision::gather_contacts_ab(&self.wall.body, &[self.floor.body], &mut self.fw);
+
+                // collision between player and floor
+                collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
+
+                // restitute between player and moving wall
+                // collision::restitute_dyn_dyn(&mut pb, &mut pv, &[self.wall.body], &mut self.pw);
+
+                // restitute between player and floor
+                collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf);
+
+                // println!("wall - wall: {:?}", self.ww);
+                // println!("player - wall: {:?}", self.pw);
+                // println!("floor - wall: {:?}", self.fw);
+                // println!("player - floor: {:?}", self.pf);
+
+                // if player hits wall, end game
+                if !self.pw.is_empty() {
+                    // TODO: explode wall
+                    // reset player position
+                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
+                    self.mode = Mode::EndScreen
+                } else {
+                    self.player.body = pb[0];
+                    self.player.velocity = pv[0];
+                }
+            }
+            Mode::EndScreen => {
+                self.ps.clear();
+
+                // collision between player and play again menu object
+                collision::gather_contacts_ab(&pb, &[self.play_again.body], &mut self.ps);
+
+                // collision between player and floor
+                collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
+
+                // restitute between player and floor
+                collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf);
+
+                // if player hits play again menu object, start game
+                if !self.ps.is_empty() {
+                    // reset player position
+                    self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
+                    self.mode = Mode::GamePlay;
+                } else {
+                    self.player.body = pb[0];
+                    self.player.velocity = pv[0];
+                }
+            }
+        }
     }
 
     fn update(&mut self, _rules: &Self::StaticData, engine: &mut Engine) {
@@ -335,13 +513,16 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
         self.player.acc = Vec3::zero();
 
+        // how much the player moves per button click
         let h_disp = Vec3::new(0.05, 0.0, 0.0);
         let v_disp = Vec3::new(0.0, 0.15, 0.0);
 
+        // player should not go past these bounds
         let top_bound = WH as f32 * WBHS * 2.0;
         let left_bound = WW as f32 * WBHS - WBHS;
         let right_bound = -left_bound;
 
+        // move player
         let psn = self.player.body.c;
         if engine.events.key_held(KeyCode::A) && psn.x + PBHS + h_disp.x <= left_bound {
             self.player.body.c += h_disp;
@@ -355,6 +536,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
             self.player.acc = self.player.acc.normalize();
         }
 
+        // TODO: remove this?
         if engine.events.key_held(KeyCode::Q) {
             self.player.omega = Vec3::unit_y();
         } else if engine.events.key_held(KeyCode::E) {
@@ -371,41 +553,9 @@ impl<C: Camera> engine3d::Game for Game<C> {
         self.player.integrate();
         self.camera.integrate();
 
-        self.ww.clear();
-        self.pw.clear();
-        self.fw.clear();
-        self.pf.clear();
-        let mut pb = [self.player.body];
-        let mut pv = [self.player.velocity];
+        self.handle_collision();
 
-        // collision between wall and wall
-        // collision::gather_contacts_aa(&[self.wall.body], &mut self.ww);
-
-        for b in &self.wall.body {
-            // collision between player and wall
-            collision::gather_contacts_ab(&pb, &[*b], &mut self.pw);
-            // collision between floor and wall
-            collision::gather_contacts_ab(&[*b], &[self.floor.body], &mut self.fw);
-        }
-
-        // collision between player and floor
-        collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
-
-        // restitute between player and moving wall
-        // collision::restitute_dyn_dyn(&mut pb, &mut pv, &[self.wall.body], &mut self.pw);
-
-        // restitute between player and floor
-        collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf);
-
-        // println!("wall - wall: {:?}", self.ww);
-        // println!("player - wall: {:?}", self.pw);
-        // println!("floor - wall: {:?}", self.fw);
-        println!("player - floor: {:?}", self.pf);
-
-        self.player.body = pb[0];
-        self.player.velocity = pv[0];
-
-        for collision::Contact { a: pa, .. } in self.pw.iter() {
+        for collision::Contact { a: pa, .. } in self.pf.iter() {
             // apply "friction" to players on the ground
             assert_eq!(*pa, 0);
             self.player.velocity *= 0.98;
