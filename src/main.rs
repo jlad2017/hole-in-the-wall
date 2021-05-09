@@ -75,7 +75,7 @@ impl Wall {
             for y in 0..WH {
                 if x != missing_x || y != missing_y {
                     let c = Pos3::new(
-                        x as f32 * 2.1 * WBHS + WBHS - WW as f32 * WBHS,
+                        x as f32 * 2.0 * WBHS + WBHS - WW as f32 * WBHS,
                         y as f32 * 2.0 * WBHS + WBHS,
                         WIZ,
                     );
@@ -107,6 +107,24 @@ impl Wall {
                                 b.half_sizes.x,
                                 b.half_sizes.y,
                                 b.half_sizes.z,
+                            )
+                            * Mat4::new(
+                                b.axes[0][0],
+                                b.axes[0][1],
+                                b.axes[0][2],
+                                0.0,
+                                b.axes[1][0],
+                                b.axes[1][1],
+                                b.axes[1][2],
+                                0.0,
+                                b.axes[2][0],
+                                b.axes[2][1],
+                                b.axes[2][2],
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0,
+                                1.0,
                             )
                         // // * Mat4::from_scale(self.body.r)
                         // Mat4::from_nonuniform_scale(0.5, 0.05, 0.5)
@@ -281,6 +299,7 @@ impl Player {
                             self.body.half_sizes.y,
                             self.body.half_sizes.z,
                         )
+                        * Mat4::from(self.rot)
                     // * Mat4::from(self.rot)
                 )
                 .into(),
@@ -296,7 +315,9 @@ impl Player {
         if self.velocity.magnitude() >= MIN_VEL {
             self.body.c += self.velocity * DT;
         }
-        self.rot += 0.5 * DT * Quat::new(0.0, self.omega.x, self.omega.y, self.omega.z) * self.rot;
+        let drot = 0.5 * DT * Quat::new(0.0, self.omega.x, self.omega.y, self.omega.z) * self.rot;
+        self.rot += drot;
+        self.body.axes = self.body.axes * Matrix3::from(drot);
     }
 }
 
@@ -331,6 +352,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
         // create wall
         // generate wall components
+        // let boxes = Wall::generate_components(Matrix3::one());
         let boxes = Wall::generate_components(Matrix3::one());
         let n_boxes = boxes.len();
         let wall = Wall {
@@ -426,12 +448,22 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
     fn handle_collision(&mut self) {
         self.pf.clear();
+        self.pw.clear();
         let mut pb = [self.player.body];
         let mut pv = [self.player.velocity];
 
         // always check and restitute player - floor
         collision::gather_contacts_ab(&pb, &[self.floor.body], &mut self.pf);
         collision::restitute_dyn_stat(&mut pb, &mut pv, &[self.floor.body], &mut self.pf, false);
+        // always check and restitute player - wall
+        collision::gather_contacts_ab(&pb, &self.wall.body, &mut self.pw);
+        collision::restitute_dyn_dyn(
+            &mut pb,
+            &mut pv,
+            &mut self.wall.body,
+            &mut self.wall.vels,
+            &mut self.pw,
+        );
 
         match self.mode {
             Mode::Menu => {
@@ -441,22 +473,11 @@ impl<C: Camera> engine3d::Game for Game<C> {
             }
             Mode::GamePlay => {
                 self.ww.clear();
-                self.pw.clear();
                 self.fw.clear();
-
-                // player - wall
-                collision::gather_contacts_ab(&pb, &self.wall.body, &mut self.pw);
-                collision::restitute_dyn_dyn(
-                    &mut pb,
-                    &mut pv,
-                    &mut self.wall.body,
-                    &mut self.wall.vels,
-                    &mut self.pw,
-                );
 
                 // wall - wall
                 collision::gather_contacts_aa(&self.wall.body, &mut self.ww);
-                collision::restitute_dyns(&mut self.wall.body, &mut self.wall.vels, &mut self.ww);
+                // collision::restitute_dyns(&mut self.wall.body, &mut self.wall.vels, &mut self.ww);
 
                 // println!("wall - wall: {:?}", self.ww);
                 // println!("player - wall: {:?}", self.pw);
@@ -530,7 +551,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
             self.player.acc -= h_disp;
         } else if engine.events.key_held(KeyCode::Space) && psn.y + PBHS + v_disp.y <= top_bound {
             // self.player.body.c += v_disp;
-            self.player.velocity += v_disp;
+            self.player.acc += v_disp;
         }
 
         if self.player.acc.magnitude2() > 1.0 {
@@ -578,7 +599,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     // Explode wall, away from player and toward the back
                     for pos in 0..self.wall.body.len() {
                         self.wall.vels[pos] +=
-                            (self.wall.body[pos].c - self.player.body.c - WIV * 3.0).normalize_to(rand::random::<f32>() * 2.0 + 2.0);
+                            (self.wall.body[pos].c - self.player.body.c - WIV * 3.0)
+                                .normalize_to(rand::random::<f32>() * 2.0 + 2.0);
                     }
                     // TODO: record and write score to file
                     // reset score and player position
