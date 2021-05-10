@@ -124,6 +124,16 @@ impl Collide<Plane> for Sphere {
 
 impl Collide<Plane> for Box {
     fn touching(&self, p: &Plane) -> bool {
+        // Treat plane as a huge box
+        let plane_box = Box {
+            c: Pos3::new(0.0, p.d - 50.0, 0.0),
+            axes: Mat3::one(),
+            half_sizes: Vec3::new(100.0, 50.0, 100.0)
+        };
+
+        self.touching(&plane_box)
+
+        /*
         // Find the distance of the box's center to the plane
         let dist = self.c.dot(p.n) - p.d;
 
@@ -181,6 +191,7 @@ impl Collide<Plane> for Box {
         // dist.abs() <= self.half_sizes.x
         // || dist.abs() <= self.half_sizes.y
         // || dist.abs() <= self.half_sizes.z
+        */
     }
 
     fn disp(&self, p: &Plane) -> Option<Vec3> {

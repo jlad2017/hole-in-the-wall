@@ -60,6 +60,8 @@ pub struct Wall {
     pub body: Vec<Box>,
     // pub velocity: Vec3,
     pub vels: Vec<Vec3>,
+    pub rots: Vec<Quat>,
+    pub omegas: Vec<Vec3>,
     control: (i8, i8),
 }
 
@@ -91,44 +93,26 @@ impl Wall {
     }
 
     fn reset(&mut self, score: i8) {
-        let n_boxes = self.body.len();
         self.body = Wall::generate_components(Mat3::one());
+        let n_boxes = self.body.len();
         self.vels = vec![WIV * (score + 1) as f32 * WVSF; n_boxes];
+        self.rots = vec![Quat::new(1.0, 0.0, 0.0, 0.0); n_boxes];
+        self.omegas = vec![Vec3::zero(); n_boxes];
+        self.control = (0, 0);
     }
 
     fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
-        for b in &self.body {
+        for (i, b) in self.body.iter().enumerate() {
             igs.render(
                 rules.wall_model,
                 InstanceRaw {
-                    model: (
-                        Mat4::from_translation(b.c.to_vec())
-                            * Mat4::from_nonuniform_scale(
-                                b.half_sizes.x,
-                                b.half_sizes.y,
-                                b.half_sizes.z,
-                            )
-                            * Mat4::new(
-                                b.axes[0][0],
-                                b.axes[0][1],
-                                b.axes[0][2],
-                                0.0,
-                                b.axes[1][0],
-                                b.axes[1][1],
-                                b.axes[1][2],
-                                0.0,
-                                b.axes[2][0],
-                                b.axes[2][1],
-                                b.axes[2][2],
-                                0.0,
-                                0.0,
-                                0.0,
-                                0.0,
-                                1.0,
-                            )
-                        // // * Mat4::from_scale(self.body.r)
-                        // Mat4::from_nonuniform_scale(0.5, 0.05, 0.5)
-                    )
+                    model: (Mat4::from_translation(b.c.to_vec())
+                        * Mat4::from_nonuniform_scale(
+                            b.half_sizes.x,
+                            b.half_sizes.y,
+                            b.half_sizes.z,
+                        )
+                        * Mat4::from(self.rots[i]))
                     .into(),
                 },
             );
@@ -155,6 +139,15 @@ impl Wall {
     fn integrate(&mut self) {
         for (b, v) in &mut self.body.iter_mut().zip(self.vels.iter()) {
             b.c += v * DT;
+        }
+
+        for i in 0..self.body.len() {
+            let drot = 0.5
+                * DT
+                * Quat::new(0.0, self.omegas[i].x, self.omegas[i].y, self.omegas[i].z)
+                * self.rots[i];
+            self.rots[i] += drot;
+            self.body[i].axes = self.body[i].axes * Matrix3::from(drot);
         }
     }
 }
@@ -291,17 +284,13 @@ impl Player {
         igs.render(
             rules.player_model,
             InstanceRaw {
-                model: (
-                    // Mat4::from_translation(self.body.c.to_vec() - Vec3::new(0.0, 0.2, 0.0))
-                    Mat4::from_translation(self.body.c.to_vec())
-                        * Mat4::from_nonuniform_scale(
-                            self.body.half_sizes.x,
-                            self.body.half_sizes.y,
-                            self.body.half_sizes.z,
-                        )
-                        * Mat4::from(self.rot)
-                    // * Mat4::from(self.rot)
-                )
+                model: (Mat4::from_translation(self.body.c.to_vec())
+                    * Mat4::from_nonuniform_scale(
+                        self.body.half_sizes.x,
+                        self.body.half_sizes.y,
+                        self.body.half_sizes.z,
+                    )
+                    * Mat4::from(self.rot))
                 .into(),
             },
         );
@@ -358,6 +347,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
         let wall = Wall {
             body: boxes,
             vels: vec![WIV; n_boxes],
+            rots: vec![Quat::new(1.0, 0.0, 0.0, 0.0); n_boxes],
+            omegas: vec![Vec3::zero(); n_boxes],
             control: (0, 0),
         };
 
@@ -528,7 +519,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
         // player should not go past these bounds
         let top_bound = WH as f32 * WBHS * 2.0;
-        let left_bound = WW as f32 * WBHS;
+        let left_bound = WW as f32 * WBHS - 2.0;
         let right_bound = -left_bound + WBHS;
 
         // apply gravity here instead of integrate() so handle_collision can deal with gravity smoothly
@@ -558,7 +549,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
             self.player.acc = self.player.acc.normalize();
         }
 
-        // TODO: remove this?
+        // rotate player
         if engine.events.key_held(KeyCode::Q) {
             self.player.omega = Vec3::unit_y();
         } else if engine.events.key_held(KeyCode::E) {
@@ -598,9 +589,16 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     self.mode = Mode::EndScreen;
                     // Explode wall, away from player and toward the back
                     for pos in 0..self.wall.body.len() {
-                        self.wall.vels[pos] +=
-                            (self.wall.body[pos].c - self.player.body.c - WIV * 3.0)
-                                .normalize_to(rand::random::<f32>() * 2.0 + 2.0);
+                        // self.wall.vels[pos] +=
+                            // (self.wall.body[pos].c - self.player.body.c - WIV * 3.0)
+                                // .normalize_to(rand::random::<f32>());
+
+                        self.wall.omegas[pos] = Vec3::new(
+                            rand::random::<f32>(),
+                            rand::random::<f32>(),
+                            rand::random::<f32>(),
+                        )
+                        .normalize();
                     }
                     // TODO: record and write score to file
                     // reset score and player position
@@ -624,7 +622,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 // clear wall blocks from view once they get far away
                 let mut to_keep: Vec<bool> = Vec::new();
                 for i in 0..self.wall.body.len() {
-                    if (self.wall.body[i].c - self.player.body.c).magnitude() < 30.0 {
+                    if (self.wall.body[i].c - self.player.body.c).magnitude() < 50.0 {
                         to_keep.push(true);
                     } else {
                         to_keep.push(false);
