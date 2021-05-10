@@ -16,6 +16,7 @@ pub(crate) struct Render {
     surface: wgpu::Surface,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
+    pub(crate) staging_belt: wgpu::util::StagingBelt,
     sc_desc: wgpu::SwapChainDescriptor,
     swap_chain: wgpu::SwapChain,
     pub(crate) size: winit::dpi::PhysicalSize<u32>,
@@ -63,6 +64,9 @@ impl Render {
             )
             .await
             .unwrap();
+
+        // create staging belt
+        let staging_belt = wgpu::util::StagingBelt::new(1024);
 
         let sc_desc = wgpu::SwapChainDescriptor {
             usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
@@ -167,8 +171,9 @@ impl Render {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
                             min_binding_size: wgpu::BufferSize::new(
-                                LIGHT_MAX as u64 * std::mem::size_of::<crate::lights::Light>()
-                                    as wgpu::BufferAddress,
+                                LIGHT_MAX as u64
+                                    * std::mem::size_of::<crate::lights::Light>()
+                                        as wgpu::BufferAddress,
                             ),
                         },
                         count: None,
@@ -373,6 +378,7 @@ impl Render {
             surface,
             device,
             queue,
+            staging_belt,
             sc_desc,
             swap_chain,
             size,
@@ -507,6 +513,8 @@ impl Render {
             }
         }
 
+        // submit
+        self.staging_belt.finish();
         self.queue.submit(std::iter::once(encoder.finish()));
 
         Ok(())

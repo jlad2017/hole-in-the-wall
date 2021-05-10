@@ -466,9 +466,24 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 self.ww.clear();
                 self.fw.clear();
 
+                // collision
                 // wall - wall
                 collision::gather_contacts_aa(&self.wall.body, &mut self.ww);
                 // collision::restitute_dyns(&mut self.wall.body, &mut self.wall.vels, &mut self.ww);
+                // player - wall
+                collision::gather_contacts_ab(&pb, &self.wall.body, &mut self.pw);
+                // wall - floor
+                collision::gather_contacts_ab(&self.wall.body, &[self.floor.body], &mut self.fw);
+
+                // restitution
+                // wall - floor
+                collision::restitute_dyn_stat(
+                    &mut self.wall.body,
+                    &mut self.wall.vels,
+                    &[self.floor.body],
+                    &mut self.pf,
+                    false,
+                );
 
                 // println!("wall - wall: {:?}", self.ww);
                 // println!("player - wall: {:?}", self.pw);
@@ -480,15 +495,16 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 self.ww.clear();
                 self.fw.clear();
 
-                // collision between player and play again menu object
+                // player - play again menu object
                 collision::gather_contacts_ab(&pb, &[self.play_again.body], &mut self.ps);
 
                 // wall - wall
                 collision::gather_contacts_aa(&self.wall.body, &mut self.ww);
-                collision::restitute_dyns(&mut self.wall.body, &mut self.wall.vels, &mut self.ww);
 
                 // floor - wall
                 collision::gather_contacts_ab(&self.wall.body, &[self.floor.body], &mut self.fw);
+
+                // restitute wall - wall
                 collision::restitute_dyn_stat(
                     &mut self.wall.body,
                     &mut self.wall.vels,
@@ -590,8 +606,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     // Explode wall, away from player and toward the back
                     for pos in 0..self.wall.body.len() {
                         // self.wall.vels[pos] +=
-                            // (self.wall.body[pos].c - self.player.body.c - WIV * 3.0)
-                                // .normalize_to(rand::random::<f32>());
+                        // (self.wall.body[pos].c - self.player.body.c - WIV * 3.0)
+                        // .normalize_to(rand::random::<f32>());
 
                         self.wall.omegas[pos] = Vec3::new(
                             rand::random::<f32>(),
