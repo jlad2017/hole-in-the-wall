@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 pub use cgmath::prelude::*;
+use serde::{Deserialize, Serialize};
 pub type Vec3 = cgmath::Vector3<f32>;
 pub type Pos3 = cgmath::Point3<f32>;
 pub type Mat3 = cgmath::Matrix3<f32>;
@@ -60,10 +60,12 @@ impl Shape for Sphere {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(remote = "Plane")]
 pub struct Plane {
+    #[serde(with = "Vec3Def")]
     pub n: Vec3, // unit vector normal
-    pub d: f32,  // distance of how far along the normal it is
+    pub d: f32, // distance of how far along the normal it is
 }
 
 impl Shape for Plane {
@@ -72,13 +74,12 @@ impl Shape for Plane {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Box {
     #[serde(with = "Pos3Def")]
-    pub c: Pos3,          // center of box
+    pub c: Pos3, // center of box
     #[serde(with = "Mat3Def")]
-    pub axes: Mat3,       // rotation matrix
+    pub axes: Mat3, // rotation matrix
     #[serde(with = "Vec3Def")]
     pub half_sizes: Vec3, // how far from the center in each direction
 }
@@ -168,7 +169,7 @@ impl Collide<Plane> for Box {
         let plane_box = Box {
             c: Pos3::new(0.0, p.d - 50.0, 0.0),
             axes: Mat3::one(),
-            half_sizes: Vec3::new(100.0, 50.0, 100.0)
+            half_sizes: Vec3::new(100.0, 50.0, 100.0),
         };
 
         self.touching(&plane_box)

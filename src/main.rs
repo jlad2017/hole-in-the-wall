@@ -1,18 +1,22 @@
+use ambisonic::Ambisonic;
+use ambisonic::SoundController;
 use ambisonic::{rodio, AmbisonicBuilder};
 use cgmath::Matrix3;
 use engine3d::{
-    audio,
     camera::*,
     collision,
     geom::*,
     render::{InstanceGroups, InstanceRaw},
     run, Engine, DT,
 };
-use std::fs::File;
 use rand;
 use rand::Rng;
 use rodio::Source;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
+use std::fs::File;
+use std::io::BufReader;
+use std::io::Write;
 use std::thread::sleep;
 use std::time::Duration;
 use winit;
@@ -29,16 +33,14 @@ const WIV: Vec3 = Vec3::new(0.0, 0.0, -2.0); // initial velocity of wall
 const WIZ: f32 = 20.0; // initial z position of wall
 const WVSF: f32 = 0.5; // wall velocity scaling factor
 
-#[derive(Clone, PartialEq, Debug)]
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 enum Mode {
     Menu,
     GamePlay,
     EndScreen,
 }
 
-#[derive(Clone, PartialEq, Debug)]
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct MenuObject {
     pub body: Box,
 }
@@ -48,35 +50,29 @@ impl MenuObject {
         igs.render(
             rules.menu_object_model,
             InstanceRaw {
-                model: (
-                    Mat4::from_translation(self.body.c.to_vec())
-                        * Mat4::from_nonuniform_scale(
-                            self.body.half_sizes.x,
-                            self.body.half_sizes.y,
-                            self.body.half_sizes.z,
-                        )
-                    // // * Mat4::from_scale(self.body.r)
-                    // Mat4::from_nonuniform_scale(0.5, 0.05, 0.5)
-                )
+                model: (Mat4::from_translation(self.body.c.to_vec())
+                    * Mat4::from_nonuniform_scale(
+                        self.body.half_sizes.x,
+                        self.body.half_sizes.y,
+                        self.body.half_sizes.z,
+                    ))
                 .into(),
             },
         );
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum WallType {
     Diamond,
-    Glass
+    Glass,
 }
 
+// #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[derive(Clone, PartialEq, Debug)]
-#[derive(Serialize, Deserialize)]
 pub struct Wall {
     pub wall_type: WallType,
     pub body: Vec<Box>,
-    // pub velocity: Vec3,
     pub vels: Vec<Vec3>,
     pub rots: Vec<Quat>,
     pub omegas: Vec<Vec3>,
@@ -112,7 +108,11 @@ impl Wall {
 
     fn reset(&mut self, score: i8) {
         let mut rng = rand::thread_rng();
-        let wall_type = if rng.gen_range(0..1) == 0 { WallType::Diamond } else { WallType::Glass };
+        let wall_type = if rng.gen_range(0..1) == 0 {
+            WallType::Diamond
+        } else {
+            WallType::Glass
+        };
         self.wall_type = wall_type;
         self.body = Wall::generate_components(Mat3::one());
         let n_boxes = self.body.len();
@@ -177,9 +177,9 @@ impl Wall {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Platform {
+    #[serde(with = "Plane")]
     pub body: Plane,
     control: (i8, i8),
 }
@@ -269,7 +269,16 @@ impl Platform {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+pub struct Audio {
+    scene: Ambisonic,
+    sound1: Option<SoundController>,
+    sound2: Option<SoundController>,
+    sound3: Option<SoundController>,
+    sound4: Option<SoundController>,
+}
+
+// #[derive(Serialize, Deserialize, Debug)]
+// #[derive(Debug)]
 struct Game<Cam: Camera> {
     start: MenuObject,
     scores: MenuObject,
@@ -288,6 +297,7 @@ struct Game<Cam: Camera> {
     pl: Vec<collision::Contact<usize>>,
     mode: Mode,
     score: i8,
+    audio: Audio,
     // sources: Vec<rodio::Decoder<std::io::BufReader<std::fs::File>>>,
     // scene: Ambisonic
 }
@@ -299,16 +309,18 @@ struct GameData {
     player_model: engine3d::assets::ModelRef,
     camera_model: engine3d::assets::ModelRef,
     menu_object_model: engine3d::assets::ModelRef,
-    audio: Audio
 }
 
-#[derive(Clone, Debug)]
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Player {
     pub body: Box,
+    #[serde(with = "Vec3Def")]
     pub velocity: Vec3,
+    #[serde(with = "Vec3Def")]
     pub acc: Vec3,
+    #[serde(with = "QuatDef")]
     pub rot: Quat,
+    #[serde(with = "Vec3Def")]
     pub omega: Vec3,
 }
 
@@ -347,8 +359,6 @@ impl Player {
 impl<C: Camera> engine3d::Game for Game<C> {
     type StaticData = GameData;
     fn start(engine: &mut Engine) -> (Self, Self::StaticData) {
-        use rand::Rng;
-
         // create menu objects
         let menu_object_half_sizes = Vec3::new(MBHS, MBHS, MBHS);
         let start = MenuObject {
@@ -376,8 +386,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
             body: Box {
                 c: Pos3::new(0.0, MBHS, 3.0),
                 axes: Matrix3::one(),
-                half_sizes: menu_object_half_sizes
-            }
+                half_sizes: menu_object_half_sizes,
+            },
         };
 
         // create wall
@@ -432,31 +442,30 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
         let (stream, stream_handle) = rodio::OutputStream::try_default().unwrap();
         let scene = AmbisonicBuilder::default().build();
-    
-        let file1 = std::fs::File::open("content/boxMovement.wav").unwrap();
-        let file2 = std::fs::File::open("content/wallBreakSound.wav").unwrap();
-        let file3 = std::fs::File::open("content/wallBreakSoundGlass.mp3").unwrap();
-        let file4 = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
-        let source1 = rodio::Decoder::new(std::io::BufReader::new(file1)).unwrap();
-        let source2 = rodio::Decoder::new(std::io::BufReader::new(file2)).unwrap();
-        let source3 = rodio::Decoder::new(std::io::BufReader::new(file3)).unwrap();
-        let source4 = rodio::Decoder::new(std::io::BufReader::new(file4)).unwrap();
+
         // let source1 = source1.repeat_infinite();
-    
-        let audio_paths = vec![
-            "content/boxMovement.wav",
-            "content/wallBreakSound.wav",
-            "content/wallBreakSoundGlass.mp3",
-            "content/wallTrainSound.mp3"
-        ];
-        let playing_action = vec![
-            AlreadyPlayingAction::Nothing,
-            AlreadyPlayingAction::Nothing,
-            AlreadyPlayingAction::Nothing,
-            AlreadyPlayingAction::Retrigger,
-        ];
-        let audio = Audio::new(audio_paths, playing_action);
-        
+        // let audio_paths = vec![
+        //     "content/boxMovement.wav",
+        //     "content/wallBreakSound.wav",
+        //     "content/wallBreakSoundGlass.mp3",
+        //     "content/wallTrainSound.mp3"
+        // ];
+        // let playing_action = vec![
+        //     AlreadyPlayingAction::Nothing,
+        //     AlreadyPlayingAction::Nothing,
+        //     AlreadyPlayingAction::Nothing,
+        //     AlreadyPlayingAction::Retrigger,
+        // ];
+        // let audio = Audio::new(audio_paths, playing_action);
+
+        let audio = Audio {
+            scene,
+            sound1: None,
+            sound2: None,
+            sound3: None,
+            sound4: None,
+        };
+
         // create game
         (
             Self {
@@ -476,6 +485,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 pl: vec![],
                 mode: Mode::Menu,
                 score: 0,
+                audio,
                 // sources: vec![source1],
                 // sources: vec![source1, source2, source3, source4],
             },
@@ -486,7 +496,6 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 platform_model: floor_model,
                 player_model,
                 camera_model,
-                audio
             },
         )
     }
@@ -600,7 +609,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
         // self.player.body.c += self.player.velocity * DT;
     }
 
-    fn update(&mut self, rules: &Self::StaticData, engine: &mut Engine) {
+    fn update(&mut self, _rules: &Self::StaticData, engine: &mut Engine) {
         // dbg!(self.player.body);
         // TODO update player acc with controls
         // TODO update camera with controls/player movement
@@ -647,10 +656,10 @@ impl<C: Camera> engine3d::Game for Game<C> {
         if engine.events.key_held(KeyCode::Space) && psn.y + PBHS + v_disp.y <= top_bound {
             self.player.acc += v_disp;
         }
-        if engine.events.key_held(KeyCode::Enter) {
-            let serialized = serde_json::to_string(&self).unwrap();
-            let mut file = File::create("savefile.txt").unwrap();
-            file.write_all(serialized);
+        if engine.events.key_held(KeyCode::Return) {
+            // let serialized = serde_json::to_string(&self).unwrap();
+            // let mut file = File::create("savefile.txt").unwrap();
+            // file.write_all(&serialized.as_bytes());
         }
 
         if self.player.acc.magnitude2() > 1.0 {
@@ -671,23 +680,60 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
         if self.mode != Mode::Menu {
             self.wall.integrate();
-            // update wall audio 
-            let wall_z = self.wall.body[0].body.c.z;
-            rules.audio.update_posn(SoundID(3), [0.0, 0.0, wall_z]);
+            // update wall audio
+            let wall_z = self.wall.body[0].c.z;
+            // let source = &rules.audio.source4;
+            self.audio
+                .sound4
+                .as_mut()
+                .unwrap()
+                .adjust_position([0.0, 0.0, wall_z]);
         }
         self.floor.integrate();
         self.player.integrate();
         self.camera.integrate();
-        
         for collision::Contact { a: pa, .. } in self.pf.iter() {
             // apply "friction" to players on the ground
             assert_eq!(*pa, 0);
             self.player.velocity *= 0.98;
         }
 
-        // play player movement sound
-        let player_posn = [self.player.body.c.x, self.player.body.c.y, self.player.body.c.z];
-        rules.audio.play_at(SoundID(0), player_posn);
+        if (self.player.velocity.x.abs() <= 0.1
+            // if player is not moving, or player is not on the ground, remove sound
+            && self.player.velocity.z.abs() <= 0.1
+            && self.player.acc.x.abs() <= 0.01
+            && self.player.acc.z.abs() <= 0.01)
+            || self.pf.is_empty()
+        {
+            if self.audio.sound1.is_some() {
+                self.audio.sound1.as_mut().unwrap().stop();
+            }
+            self.audio.sound1 = None;
+        } else {
+            // if player is moving, play player movement sound
+            let player_posn = [
+                self.player.body.c.x,
+                self.player.body.c.y,
+                self.player.body.c.z,
+            ];
+            match &mut self.audio.sound1 {
+                // if sound is already playing, adjust posn
+                Some(sound) => {
+                    sound.adjust_position(player_posn);
+                }
+                // if sound is not playing, play
+                None => {
+                    let file = std::fs::File::open("content/boxMovement.wav").unwrap();
+                    let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                    let source = source.repeat_infinite();
+                    let sound = self
+                        .audio
+                        .scene
+                        .play_at(source.convert_samples(), player_posn);
+                    self.audio.sound1 = Some(sound);
+                }
+            }
+        }
 
         match self.mode {
             Mode::Menu => {
@@ -697,17 +743,26 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     // reset player position
                     self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
                     // start playing wall sound
-                    rules.audio.play_at(SoundID(3), [0.0, 0.0, WIZ]);
+                    let file = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
+                    let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                    let source = source.repeat_infinite();
+                    let sound = self
+                        .audio
+                        .scene
+                        .play_at(source.convert_samples(), [0.0, 0.0, WIZ]);
+                    self.audio.sound4 = Some(sound);
                 }
                 // if player hits load save object, load save
-                if !self.ps.is_empty() {
-                    self.load_game();
+                if !self.pl.is_empty() {
+                    // self.load_game();
                 }
             }
             Mode::GamePlay => {
                 // if player hits wall, end game
                 if !self.pw.is_empty() {
                     self.mode = Mode::EndScreen;
+                    // stop playing wall sound
+                    self.audio.sound4.as_mut().unwrap().stop();
                     // Explode wall, away from player and toward the back
                     for pos in 0..self.wall.body.len() {
                         // self.wall.vels[pos] +=
@@ -721,15 +776,28 @@ impl<C: Camera> engine3d::Game for Game<C> {
                         )
                         .normalize();
                     }
-                    // TODO: play wall break sound
+                    // play wall break sound
                     let wall_c = self.wall.body[self.pw[0].b].c;
                     let wall_posn = [wall_c.x, wall_c.y, wall_c.z];
                     match self.wall.wall_type {
                         WallType::Diamond => {
-                            rules.audio.play_at(SoundID(1), wall_posn);
+                            let file = std::fs::File::open("content/wallBreakSound.wav").unwrap();
+                            let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                            let sound = self
+                                .audio
+                                .scene
+                                .play_at(source.convert_samples(), wall_posn);
+                            self.audio.sound2 = Some(sound);
                         }
                         WallType::Glass => {
-                            rules.audio.play_at(SoundID(2), wall_posn);
+                            let file =
+                                std::fs::File::open("content/wallBreakSoundGlass.mp3").unwrap();
+                            let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                            let sound = self
+                                .audio
+                                .scene
+                                .play_at(source.convert_samples(), wall_posn);
+                            self.audio.sound3 = Some(sound);
                         }
                     }
                     // TODO: record and write score to file
@@ -741,8 +809,14 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     self.score += 1;
                     self.wall.reset(self.score);
                     // reset wall sound
-                    rules.audio.stop();
-                    rules.audio.play_at(SoundID(3), [0.0, 0.0, WIZ]);
+                    self.audio.sound4.as_mut().unwrap().stop();
+                    let file = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
+                    let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                    let sound = self
+                        .audio
+                        .scene
+                        .play_at(source.convert_samples(), [0.0, 0.0, WIZ]);
+                    self.audio.sound4 = Some(sound);
                 }
             }
             Mode::EndScreen => {
@@ -752,8 +826,14 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     // reset wall and player position
                     self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
                     self.wall.reset(self.score);
-                    // start playing wall sound 
-                    rules.audio.play_at(SoundID(3), [0.0, 0.0, WIZ]);
+                    // start playing wall sound
+                    let file = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
+                    let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                    let sound = self
+                        .audio
+                        .scene
+                        .play_at(source.convert_samples(), [0.0, 0.0, WIZ]);
+                    self.audio.sound4 = Some(sound);
                 }
 
                 // clear wall blocks from view once they get far away
@@ -772,14 +852,14 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
         self.camera.update_camera(engine.camera_mut());
     }
-    
     fn load_game(&mut self) {
-        let file = File::open("savefile.txt");
-        let mut buf_reader = BufReader::new(file);
-        let mut contents = String::new();
-        buf_reader.read_to_string(&mut contents);
-        let save_state = serde_json::from_str(&contents).unwrap();
-        self = save_state;
+        //     let file = File::open("savefile.txt").unwrap();
+        //     let mut buf_reader = BufReader::new(file);
+        //     // let mut contents = String::new();
+        //     // buf_reader.read_to_string(&mut contents);
+        //     // let save_state = serde_json::from_str(&contents).unwrap();
+        //     let save_state = serde_json::from_reader(buf_reader).unwrap();
+        //     self = save_state;
     }
 }
 

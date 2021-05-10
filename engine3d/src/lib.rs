@@ -5,7 +5,7 @@ use winit::{
     platform::run_return::EventLoopExtRunReturn,
 };
 pub mod anim;
-pub mod audio;
+// pub mod audio;
 pub mod camera;
 pub mod collision;
 pub mod events;
@@ -74,7 +74,7 @@ pub fn run<R, G: Game<StaticData = R>>(
         events,
         frame: 0,
     };
-    let (mut game, rules) = G::start(&mut engine);
+    let (mut game, mut rules) = G::start(&mut engine);
     // How many unsimulated frames have we saved up?
     let mut available_time: f32 = 0.0;
     let mut since = Instant::now();
@@ -131,7 +131,7 @@ pub fn run<R, G: Game<StaticData = R>>(
             // Eat up one frame worth of time
             available_time -= DT;
 
-            game.update(&rules, &mut engine);
+            game.update(&mut rules, &mut engine);
 
             engine.events.next_frame();
             engine.frame += 1;

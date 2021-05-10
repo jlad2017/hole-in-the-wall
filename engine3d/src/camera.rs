@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use crate::{events, geom::*};
+use serde::{Deserialize, Serialize};
 use winit;
 use winit::event::VirtualKeyCode as KeyCode;
 
@@ -29,8 +29,7 @@ pub trait Camera {
     fn integrate(&mut self) {}
 }
 
-#[derive(Clone, Debug)]
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OrbitCamera {
     pub pitch: f32,
     pub yaw: f32,
