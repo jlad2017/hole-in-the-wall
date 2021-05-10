@@ -1,9 +1,12 @@
+use serde::{Serialize, Deserialize};
 use crate::geom::*;
 
 #[derive(Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct Contact<T: Copy> {
     pub a: T,
     pub b: T,
+    #[serde(with = "Vec3Def")]
     pub mtv: Vec3,
 }
 

@@ -1,3 +1,4 @@
+use serde::{Serialize, Deserialize};
 pub use cgmath::prelude::*;
 pub type Vec3 = cgmath::Vector3<f32>;
 pub type Pos3 = cgmath::Point3<f32>;
@@ -7,6 +8,41 @@ pub type Quat = cgmath::Quaternion<f32>;
 pub const PI: f32 = std::f32::consts::PI;
 
 pub const EPS: f32 = 0.01;
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "Vec3")]
+pub struct Vec3Def {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "Pos3")]
+pub struct Pos3Def {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "Quat")]
+pub struct QuatDef {
+    pub s: f32,
+    #[serde(with = "Vec3Def")]
+    pub v: Vec3,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "Mat3")]
+pub struct Mat3Def {
+    #[serde(with = "Vec3Def")]
+    pub x: Vec3,
+    #[serde(with = "Vec3Def")]
+    pub y: Vec3,
+    #[serde(with = "Vec3Def")]
+    pub z: Vec3,
+}
 
 pub trait Shape {
     fn translate(&mut self, v: Vec3);
@@ -37,9 +73,13 @@ impl Shape for Plane {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct Box {
+    #[serde(with = "Pos3Def")]
     pub c: Pos3,          // center of box
+    #[serde(with = "Mat3Def")]
     pub axes: Mat3,       // rotation matrix
+    #[serde(with = "Vec3Def")]
     pub half_sizes: Vec3, // how far from the center in each direction
 }
 

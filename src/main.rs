@@ -1,13 +1,20 @@
+use ambisonic::{rodio, AmbisonicBuilder};
 use cgmath::Matrix3;
 use engine3d::{
+    audio,
     camera::*,
     collision,
     geom::*,
     render::{InstanceGroups, InstanceRaw},
     run, Engine, DT,
 };
+use std::fs::File;
 use rand;
 use rand::Rng;
+use rodio::Source;
+use serde::{Serialize, Deserialize};
+use std::thread::sleep;
+use std::time::Duration;
 use winit;
 use winit::event::VirtualKeyCode as KeyCode;
 
@@ -23,6 +30,7 @@ const WIZ: f32 = 20.0; // initial z position of wall
 const WVSF: f32 = 0.5; // wall velocity scaling factor
 
 #[derive(Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize)]
 enum Mode {
     Menu,
     GamePlay,
@@ -30,6 +38,7 @@ enum Mode {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct MenuObject {
     pub body: Box,
 }
@@ -56,7 +65,16 @@ impl MenuObject {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize)]
+pub enum WallType {
+    Diamond,
+    Glass
+}
+
+#[derive(Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct Wall {
+    pub wall_type: WallType,
     pub body: Vec<Box>,
     // pub velocity: Vec3,
     pub vels: Vec<Vec3>,
@@ -93,6 +111,9 @@ impl Wall {
     }
 
     fn reset(&mut self, score: i8) {
+        let mut rng = rand::thread_rng();
+        let wall_type = if rng.gen_range(0..1) == 0 { WallType::Diamond } else { WallType::Glass };
+        self.wall_type = wall_type;
         self.body = Wall::generate_components(Mat3::one());
         let n_boxes = self.body.len();
         self.vels = vec![WIV * (score + 1) as f32 * WVSF; n_boxes];
@@ -102,9 +123,13 @@ impl Wall {
     }
 
     fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
+        let model = match self.wall_type {
+            WallType::Diamond => rules.diamond_wall_model,
+            WallType::Glass => rules.glass_wall_model,
+        };
         for (i, b) in self.body.iter().enumerate() {
             igs.render(
-                rules.wall_model,
+                model,
                 InstanceRaw {
                     model: (Mat4::from_translation(b.c.to_vec())
                         * Mat4::from_nonuniform_scale(
@@ -153,6 +178,7 @@ impl Wall {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct Platform {
     pub body: Plane,
     control: (i8, i8),
@@ -243,10 +269,12 @@ impl Platform {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 struct Game<Cam: Camera> {
     start: MenuObject,
     scores: MenuObject,
     play_again: MenuObject,
+    load_save: MenuObject,
     wall: Wall,
     floor: Platform,
     // bounds: Vec<Platform>,
@@ -257,19 +285,25 @@ struct Game<Cam: Camera> {
     pw: Vec<collision::Contact<usize>>,
     fw: Vec<collision::Contact<usize>>,
     pf: Vec<collision::Contact<usize>>,
+    pl: Vec<collision::Contact<usize>>,
     mode: Mode,
     score: i8,
+    // sources: Vec<rodio::Decoder<std::io::BufReader<std::fs::File>>>,
+    // scene: Ambisonic
 }
 
 struct GameData {
-    wall_model: engine3d::assets::ModelRef,
+    diamond_wall_model: engine3d::assets::ModelRef,
+    glass_wall_model: engine3d::assets::ModelRef,
     platform_model: engine3d::assets::ModelRef,
     player_model: engine3d::assets::ModelRef,
     camera_model: engine3d::assets::ModelRef,
     menu_object_model: engine3d::assets::ModelRef,
+    audio: Audio
 }
 
 #[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct Player {
     pub body: Box,
     pub velocity: Vec3,
@@ -338,6 +372,13 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 half_sizes: menu_object_half_sizes,
             },
         };
+        let load_save = MenuObject {
+            body: Box {
+                c: Pos3::new(0.0, MBHS, 3.0),
+                axes: Matrix3::one(),
+                half_sizes: menu_object_half_sizes
+            }
+        };
 
         // create wall
         // generate wall components
@@ -345,6 +386,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
         let boxes = Wall::generate_components(Matrix3::one());
         let n_boxes = boxes.len();
         let wall = Wall {
+            wall_type: WallType::Glass,
             body: boxes,
             vels: vec![WIV; n_boxes],
             rots: vec![Quat::new(1.0, 0.0, 0.0, 0.0); n_boxes],
@@ -382,20 +424,48 @@ impl<C: Camera> engine3d::Game for Game<C> {
         // models
         // TODO: update .obj and .mtl files
         let menu_object_model = engine.load_model("box.obj");
-        let wall_model = engine.load_model("box.obj");
+        let diamond_wall_model = engine.load_model("wall.obj");
+        let glass_wall_model = engine.load_model("glass-box.obj");
         let floor_model = engine.load_model("floor.obj");
         let player_model = engine.load_model("cube.obj");
         let camera_model = engine.load_model("sphere.obj");
 
+        let (stream, stream_handle) = rodio::OutputStream::try_default().unwrap();
+        let scene = AmbisonicBuilder::default().build();
+    
+        let file1 = std::fs::File::open("content/boxMovement.wav").unwrap();
+        let file2 = std::fs::File::open("content/wallBreakSound.wav").unwrap();
+        let file3 = std::fs::File::open("content/wallBreakSoundGlass.mp3").unwrap();
+        let file4 = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
+        let source1 = rodio::Decoder::new(std::io::BufReader::new(file1)).unwrap();
+        let source2 = rodio::Decoder::new(std::io::BufReader::new(file2)).unwrap();
+        let source3 = rodio::Decoder::new(std::io::BufReader::new(file3)).unwrap();
+        let source4 = rodio::Decoder::new(std::io::BufReader::new(file4)).unwrap();
+        // let source1 = source1.repeat_infinite();
+    
+        let audio_paths = vec![
+            "content/boxMovement.wav",
+            "content/wallBreakSound.wav",
+            "content/wallBreakSoundGlass.mp3",
+            "content/wallTrainSound.mp3"
+        ];
+        let playing_action = vec![
+            AlreadyPlayingAction::Nothing,
+            AlreadyPlayingAction::Nothing,
+            AlreadyPlayingAction::Nothing,
+            AlreadyPlayingAction::Retrigger,
+        ];
+        let audio = Audio::new(audio_paths, playing_action);
+        
         // create game
         (
             Self {
                 start,
                 scores,
                 play_again,
+                load_save,
                 wall,
                 floor,
-                // bounds,
                 player,
                 camera,
                 ps: vec![],
@@ -403,15 +473,20 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 fw: vec![],
                 pw: vec![],
                 pf: vec![],
+                pl: vec![],
                 mode: Mode::Menu,
                 score: 0,
+                // sources: vec![source1],
+                // sources: vec![source1, source2, source3, source4],
             },
             GameData {
                 menu_object_model,
-                wall_model,
+                diamond_wall_model,
+                glass_wall_model,
                 platform_model: floor_model,
                 player_model,
                 camera_model,
+                audio
             },
         )
     }
@@ -425,6 +500,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
             Mode::Menu => {
                 self.start.render(rules, igs);
                 self.scores.render(rules, igs);
+                self.load_save.render(rules, igs);
             }
             Mode::GamePlay => {
                 self.wall.render(rules, igs);
@@ -433,6 +509,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 self.wall.render(rules, igs);
                 self.play_again.render(rules, igs);
                 self.scores.render(rules, igs);
+                self.load_save.render(rules, igs);
             }
         }
     }
@@ -461,6 +538,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 self.ps.clear();
                 // collision between player and start object
                 collision::gather_contacts_ab(&pb, &[self.start.body], &mut self.ps);
+                // collision between player and load save object
+                collision::gather_contacts_ab(&pb, &[self.load_save.body], &mut self.ps);
             }
             Mode::GamePlay => {
                 self.ww.clear();
@@ -497,6 +576,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
                 // player - play again menu object
                 collision::gather_contacts_ab(&pb, &[self.play_again.body], &mut self.ps);
+                // collision between player and load save object
+                collision::gather_contacts_ab(&pb, &[self.load_save.body], &mut self.ps);
 
                 // wall - wall
                 collision::gather_contacts_aa(&self.wall.body, &mut self.ww);
@@ -519,7 +600,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
         // self.player.body.c += self.player.velocity * DT;
     }
 
-    fn update(&mut self, _rules: &Self::StaticData, engine: &mut Engine) {
+    fn update(&mut self, rules: &Self::StaticData, engine: &mut Engine) {
         // dbg!(self.player.body);
         // TODO update player acc with controls
         // TODO update camera with controls/player movement
@@ -531,12 +612,15 @@ impl<C: Camera> engine3d::Game for Game<C> {
         // how much the player velocity changes per button click
         let h_disp = Vec3::new(0.05, 0.0, 0.0);
         let v_disp = Vec3::new(0.0, 0.30, 0.0);
+        let z_disp = Vec3::new(0.0, 0.0, 0.05);
         let g_disp = Vec3::new(0.0, -G, 0.0);
 
         // player should not go past these bounds
         let top_bound = WH as f32 * WBHS * 2.0;
         let left_bound = WW as f32 * WBHS - 2.0;
-        let right_bound = -left_bound + WBHS;
+        let right_bound = -left_bound + WBHS - 1.0;
+        let front_bound = WIZ;
+        let back_bound = 0.0;
 
         // apply gravity here instead of integrate() so handle_collision can deal with gravity smoothly
         self.player.velocity += g_disp * DT;
@@ -551,14 +635,22 @@ impl<C: Camera> engine3d::Game for Game<C> {
         // move player
         let psn = self.player.body.c;
         if engine.events.key_held(KeyCode::A) && psn.x + PBHS + h_disp.x <= left_bound {
-            // self.player.body.c += h_disp;
             self.player.acc += h_disp;
         } else if engine.events.key_held(KeyCode::D) && psn.x + PBHS - h_disp.x >= right_bound {
-            // self.player.body.c -= h_disp;
             self.player.acc -= h_disp;
-        } else if engine.events.key_held(KeyCode::Space) && psn.y + PBHS + v_disp.y <= top_bound {
-            // self.player.body.c += v_disp;
+        }
+        if engine.events.key_held(KeyCode::W) && psn.z + PBHS + z_disp.x <= front_bound {
+            self.player.acc += z_disp;
+        } else if engine.events.key_held(KeyCode::S) && psn.z + PBHS - z_disp.x >= back_bound {
+            self.player.acc -= z_disp;
+        }
+        if engine.events.key_held(KeyCode::Space) && psn.y + PBHS + v_disp.y <= top_bound {
             self.player.acc += v_disp;
+        }
+        if engine.events.key_held(KeyCode::Enter) {
+            let serialized = serde_json::to_string(&self).unwrap();
+            let mut file = File::create("savefile.txt").unwrap();
+            file.write_all(serialized);
         }
 
         if self.player.acc.magnitude2() > 1.0 {
@@ -579,16 +671,23 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
         if self.mode != Mode::Menu {
             self.wall.integrate();
+            // update wall audio 
+            let wall_z = self.wall.body[0].body.c.z;
+            rules.audio.update_posn(SoundID(3), [0.0, 0.0, wall_z]);
         }
         self.floor.integrate();
         self.player.integrate();
         self.camera.integrate();
-
+        
         for collision::Contact { a: pa, .. } in self.pf.iter() {
             // apply "friction" to players on the ground
             assert_eq!(*pa, 0);
             self.player.velocity *= 0.98;
         }
+
+        // play player movement sound
+        let player_posn = [self.player.body.c.x, self.player.body.c.y, self.player.body.c.z];
+        rules.audio.play_at(SoundID(0), player_posn);
 
         match self.mode {
             Mode::Menu => {
@@ -597,6 +696,12 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     self.mode = Mode::GamePlay;
                     // reset player position
                     self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
+                    // start playing wall sound
+                    rules.audio.play_at(SoundID(3), [0.0, 0.0, WIZ]);
+                }
+                // if player hits load save object, load save
+                if !self.ps.is_empty() {
+                    self.load_game();
                 }
             }
             Mode::GamePlay => {
@@ -616,6 +721,17 @@ impl<C: Camera> engine3d::Game for Game<C> {
                         )
                         .normalize();
                     }
+                    // TODO: play wall break sound
+                    let wall_c = self.wall.body[self.pw[0].b].c;
+                    let wall_posn = [wall_c.x, wall_c.y, wall_c.z];
+                    match self.wall.wall_type {
+                        WallType::Diamond => {
+                            rules.audio.play_at(SoundID(1), wall_posn);
+                        }
+                        WallType::Glass => {
+                            rules.audio.play_at(SoundID(2), wall_posn);
+                        }
+                    }
                     // TODO: record and write score to file
                     // reset score and player position
                     self.score = 0;
@@ -624,6 +740,9 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     // if wall passes camera, increment score and reset wall
                     self.score += 1;
                     self.wall.reset(self.score);
+                    // reset wall sound
+                    rules.audio.stop();
+                    rules.audio.play_at(SoundID(3), [0.0, 0.0, WIZ]);
                 }
             }
             Mode::EndScreen => {
@@ -633,6 +752,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     // reset wall and player position
                     self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
                     self.wall.reset(self.score);
+                    // start playing wall sound 
+                    rules.audio.play_at(SoundID(3), [0.0, 0.0, WIZ]);
                 }
 
                 // clear wall blocks from view once they get far away
@@ -650,6 +771,15 @@ impl<C: Camera> engine3d::Game for Game<C> {
         }
 
         self.camera.update_camera(engine.camera_mut());
+    }
+    
+    fn load_game(&mut self) {
+        let file = File::open("savefile.txt");
+        let mut buf_reader = BufReader::new(file);
+        let mut contents = String::new();
+        buf_reader.read_to_string(&mut contents);
+        let save_state = serde_json::from_str(&contents).unwrap();
+        self = save_state;
     }
 }
 

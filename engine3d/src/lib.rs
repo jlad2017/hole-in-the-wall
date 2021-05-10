@@ -5,6 +5,7 @@ use winit::{
     platform::run_return::EventLoopExtRunReturn,
 };
 pub mod anim;
+pub mod audio;
 pub mod camera;
 pub mod collision;
 pub mod events;
@@ -26,6 +27,7 @@ pub trait Game: Sized {
     fn update(&mut self, rules: &Self::StaticData, engine: &mut Engine);
     fn handle_collision(&mut self);
     fn render(&self, rules: &Self::StaticData, igs: &mut InstanceGroups);
+    fn load_game(&mut self);
 }
 
 pub struct Engine {
