@@ -1,3 +1,4 @@
+use serde::{Serialize, Deserialize};
 use crate::{events, geom::*};
 use winit;
 use winit::event::VirtualKeyCode as KeyCode;
@@ -29,11 +30,14 @@ pub trait Camera {
 }
 
 #[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct OrbitCamera {
     pub pitch: f32,
     pub yaw: f32,
     pub distance: f32,
+    #[serde(with = "Pos3Def")]
     player_pos: Pos3,
+    #[serde(with = "QuatDef")]
     player_rot: Quat,
 }
 

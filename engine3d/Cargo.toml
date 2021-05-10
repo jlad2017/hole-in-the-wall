@@ -16,6 +16,10 @@ wgpu = "0.7"
 winit = "0.24.0"
 notify = "4.0.15"
 rand = "0.8.3"
+rodio = "0.13.0"
+ambisonic = "0.4.0"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 
 [build-dependencies]
 anyhow = "1.0"

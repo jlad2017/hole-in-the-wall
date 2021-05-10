@@ -645,6 +645,7 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 name = "engine3d"
 version = "0.1.0"
 dependencies = [
+ "ambisonic",
  "anyhow",
  "bytemuck",
  "cgmath",
@@ -655,6 +656,9 @@ dependencies = [
  "log",
  "notify",
  "rand",
+ "rodio",
+ "serde",
+ "serde_json",
  "shaderc",
  "tobj",
  "wgpu",
@@ -1109,6 +1113,7 @@ dependencies = [
  "engine3d",
  "env_logger",
  "rand",
+ "rodio",
  "serde",
  "serde_json",
  "winit",

@@ -12,6 +12,7 @@ env_logger = "0.7"
 rand = "0.8.3"
 winit = "0.24.0"
 cgmath = "0.18"
+rodio = "0.13.0"
 ambisonic = "0.4.0"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
