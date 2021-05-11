@@ -315,9 +315,9 @@ struct Game<Cam: Camera> {
     pl: Vec<collision::Contact<usize>>,
     mode: Mode,
     score: i8,
+    high_score: i8,
     audio: Audio,
-    state: GameState, // sources: Vec<rodio::Decoder<std::io::BufReader<std::fs::File>>>,
-                      // scene: Ambisonic
+    state: GameState,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -525,6 +525,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 pl: vec![],
                 mode: Mode::Menu,
                 score: 0,
+                high_score: 0,
                 audio,
                 state
                 // sources: vec![source1],
@@ -645,7 +646,6 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     &mut self.fw,
                     true,
                 );
-                println!("player - load: {:?}", self.pl);
             }
         }
         self.player.body = pb[0];
@@ -654,12 +654,6 @@ impl<C: Camera> engine3d::Game for Game<C> {
     }
 
     fn update(&mut self, _rules: &Self::StaticData, engine: &mut Engine) {
-        // dbg!(self.player.body);
-        // TODO update player acc with controls
-        // TODO update camera with controls/player movement
-        // TODO TODO show how spherecasting could work?  camera pseudo-entity collision check?  camera entity for real?
-        // self.camera_controller.update(engine);
-
         self.player.acc = Vec3::zero();
 
         // how much the player velocity changes per button click
@@ -872,6 +866,9 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 } else if self.wall.body[0].c.z + WBHS < self.player.body.c.z - 2.0 * WBHS {
                     // if wall passes camera, increment score and reset wall
                     self.score += 1;
+                    if self.score > self.high_score {
+                        self.high_score = self.score;
+                    }
                     self.wall.reset(self.score);
                     // reset wall sound
                     self.audio.sound4.as_mut().unwrap().stop();

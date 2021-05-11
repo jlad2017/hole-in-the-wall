@@ -1,1 +1,1 @@
-{"wall_z":18.733353,"missing_x":4,"missing_y":1,"wall_type":"Glass","player_posn":{"x":1.002122,"y":0.5,"z":2.4446461},"score":0}
+{"wall_z":18.500023,"missing_x":5,"missing_y":0,"wall_type":"Glass","player_posn":{"x":-1.5672717,"y":0.5096411,"z":15.526048},"score":2}
