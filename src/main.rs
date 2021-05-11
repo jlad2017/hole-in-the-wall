@@ -814,8 +814,9 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 // if player hits start menu object, start game
                 if !self.ps.is_empty() {
                     self.mode = Mode::GamePlay;
-                    // reset player position
+                    // reset player position and score
                     self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
+                    self.score = 0;
                     // start playing wall sound
                     let file = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
                     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
@@ -913,9 +914,10 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 // if player hits play again menu object, start game
                 if !self.ps.is_empty() {
                     self.mode = Mode::GamePlay;
-                    // reset wall and player position
+                    // reset wall and player position and score
                     self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
                     self.wall.reset(self.score);
+                    self.score = 0;
                     // start playing wall sound
                     let file = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
                     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
