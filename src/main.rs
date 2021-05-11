@@ -360,7 +360,7 @@ struct GameData {
     player_model: engine3d::assets::ModelRef,
     camera_model: engine3d::assets::ModelRef,
     menu_object_model: engine3d::assets::ModelRef,
-    score_models: Vec<engine3d::assets::ModelRef>
+    score_models: Vec<engine3d::assets::ModelRef>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -633,17 +633,13 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 self.ww.clear();
                 self.fw.clear();
 
-                // collision
+                /*
                 // wall - wall
                 collision::gather_contacts_aa(&self.wall.body, &mut self.ww);
-                // collision::restitute_dyns(&mut self.wall.body, &mut self.wall.vels, &mut self.ww);
-                // player - wall
-                collision::gather_contacts_ab(&pb, &self.wall.body, &mut self.pw);
+                collision::restitute_dyns(&mut self.wall.body, &mut self.wall.vels, &mut self.ww);
+
                 // wall - floor
                 collision::gather_contacts_ab(&self.wall.body, &[self.floor.body], &mut self.fw);
-
-                // restitution
-                // wall - floor
                 collision::restitute_dyn_stat(
                     &mut self.wall.body,
                     &mut self.wall.vels,
@@ -651,11 +647,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     &mut self.pf,
                     false,
                 );
-
-                // println!("wall - wall: {:?}", self.ww);
-                // println!("player - wall: {:?}", self.pw);
-                // println!("floor - wall: {:?}", self.fw);
-                // println!("player - floor: {:?}", self.pf);
+                */
             }
             Mode::EndScreen => {
                 self.ps.clear();
@@ -670,11 +662,10 @@ impl<C: Camera> engine3d::Game for Game<C> {
 
                 // wall - wall
                 collision::gather_contacts_aa(&self.wall.body, &mut self.ww);
+                collision::restitute_dyns(&mut self.wall.body, &mut self.wall.vels, &mut self.ww);
 
                 // floor - wall
                 collision::gather_contacts_ab(&self.wall.body, &[self.floor.body], &mut self.fw);
-
-                // restitute wall - floor
                 collision::restitute_dyn_stat(
                     &mut self.wall.body,
                     &mut self.wall.vels,
@@ -951,16 +942,16 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 }
 
                 // clear wall blocks from view once they get far away
-                let mut to_keep: Vec<bool> = Vec::new();
-                for i in 0..self.wall.body.len() {
-                    if (self.wall.body[i].c - self.player.body.c).magnitude() < 50.0 {
-                        to_keep.push(true);
-                    } else {
-                        to_keep.push(false);
-                    }
-                }
-                self.wall.body.retain(|_| *to_keep.iter().next().unwrap());
-                self.wall.vels.retain(|_| *to_keep.iter().next().unwrap());
+                // let mut to_keep: Vec<bool> = Vec::new();
+                // for i in 0..self.wall.body.len() {
+                // if (self.wall.body[i].c - self.player.body.c).magnitude() < 50.0 {
+                // to_keep.push(true);
+                // } else {
+                // to_keep.push(false);
+                // }
+                // }
+                // self.wall.body.retain(|_| *to_keep.iter().next().unwrap());
+                // self.wall.vels.retain(|_| *to_keep.iter().next().unwrap());
             }
         }
 
