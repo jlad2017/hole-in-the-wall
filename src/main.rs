@@ -63,6 +63,28 @@ impl MenuObject {
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct ScoreObject {
+    pub body: Box,
+}
+
+impl ScoreObject {
+    fn render(&self, rules: &GameData, igs: &mut InstanceGroups, score: i8) {
+        igs.render(
+            rules.score_models[score as usize],
+            InstanceRaw {
+                model: (Mat4::from_translation(self.body.c.to_vec())
+                    * Mat4::from_nonuniform_scale(
+                        self.body.half_sizes.x,
+                        self.body.half_sizes.y,
+                        self.body.half_sizes.z,
+                    ))
+                .into(),
+            },
+        );
+    }
+}
+
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum WallType {
     Diamond,
     Glass,
@@ -281,7 +303,7 @@ pub struct Audio {
 // #[derive(Debug)]
 struct Game<Cam: Camera> {
     start: MenuObject,
-    scores: MenuObject,
+    scores: ScoreObject,
     play_again: MenuObject,
     load_save: MenuObject,
     wall: Wall,
@@ -309,6 +331,7 @@ struct GameData {
     player_model: engine3d::assets::ModelRef,
     camera_model: engine3d::assets::ModelRef,
     menu_object_model: engine3d::assets::ModelRef,
+    score_models: Vec<engine3d::assets::ModelRef>
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -368,7 +391,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 half_sizes: menu_object_half_sizes,
             },
         };
-        let scores = MenuObject {
+        let scores = ScoreObject {
             body: Box {
                 c: Pos3::new(-3.0, MBHS, 0.0),
                 axes: Matrix3::one(),
@@ -439,6 +462,18 @@ impl<C: Camera> engine3d::Game for Game<C> {
         let floor_model = engine.load_model("floor.obj");
         let player_model = engine.load_model("cube.obj");
         let camera_model = engine.load_model("sphere.obj");
+        let score_models = vec![
+            engine.load_model("score0.obj"),
+            engine.load_model("score1.obj"),
+            engine.load_model("score2.obj"),
+            engine.load_model("score3.obj"),
+            engine.load_model("score4.obj"),
+            engine.load_model("score5.obj"),
+            engine.load_model("score6.obj"),
+            engine.load_model("score7.obj"),
+            engine.load_model("score8.obj"),
+            engine.load_model("score9.obj"),
+        ];
 
         let (stream, stream_handle) = rodio::OutputStream::try_default().unwrap();
         let scene = AmbisonicBuilder::default().build();
@@ -496,6 +531,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 platform_model: floor_model,
                 player_model,
                 camera_model,
+                score_models,
             },
         )
     }
@@ -508,7 +544,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
         match self.mode {
             Mode::Menu => {
                 self.start.render(rules, igs);
-                self.scores.render(rules, igs);
+                self.scores.render(rules, igs, self.score);
                 self.load_save.render(rules, igs);
             }
             Mode::GamePlay => {
@@ -517,7 +553,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
             Mode::EndScreen => {
                 self.wall.render(rules, igs);
                 self.play_again.render(rules, igs);
-                self.scores.render(rules, igs);
+                self.scores.render(rules, igs, self.score);
                 self.load_save.render(rules, igs);
             }
         }
@@ -594,7 +630,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 // floor - wall
                 collision::gather_contacts_ab(&self.wall.body, &[self.floor.body], &mut self.fw);
 
-                // restitute wall - wall
+                // restitute wall - floor
                 collision::restitute_dyn_stat(
                     &mut self.wall.body,
                     &mut self.wall.vels,
@@ -766,8 +802,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     // Explode wall, away from player and toward the back
                     for pos in 0..self.wall.body.len() {
                         // self.wall.vels[pos] +=
-                        // (self.wall.body[pos].c - self.player.body.c - WIV * 3.0)
-                        // .normalize_to(rand::random::<f32>());
+                        //     (self.wall.body[pos].c - self.player.body.c - WIV * 3.0)
+                        //         .normalize_to(rand::random::<f32>());
 
                         self.wall.omegas[pos] = Vec3::new(
                             rand::random::<f32>(),
@@ -802,7 +838,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     }
                     // TODO: record and write score to file
                     // reset score and player position
-                    self.score = 0;
+                    // self.score = 0;
                     self.player.body.c = Pos3::new(0.0, PBHS, 0.0);
                 } else if self.wall.body[0].c.z + WBHS < self.player.body.c.z - 2.0 * WBHS {
                     // if wall passes camera, increment score and reset wall

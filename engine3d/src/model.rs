@@ -128,7 +128,7 @@ impl Model {
                         m.mesh.positions[i * 3 + 1],
                         m.mesh.positions[i * 3 + 2],
                     ],
-                    tex_coords: [m.mesh.texcoords[i * 2], m.mesh.texcoords[i * 2 + 1]],
+                    tex_coords: [m.mesh.texcoords[i * 2] * 1.4, m.mesh.texcoords[i * 2 + 1] * 0.8],
                     normal: [
                         m.mesh.normals[i * 3],
                         m.mesh.normals[i * 3 + 1],

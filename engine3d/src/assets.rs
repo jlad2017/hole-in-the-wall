@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 
-#[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Debug)]
 pub struct ModelRef(usize);
 
 pub struct Assets {
