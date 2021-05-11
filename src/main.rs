@@ -63,6 +63,50 @@ impl MenuObject {
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct StartObject {
+    pub body: Box,
+}
+
+impl StartObject {
+    fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
+        igs.render(
+            rules.start_model,
+            InstanceRaw {
+                model: (Mat4::from_translation(self.body.c.to_vec())
+                    * Mat4::from_nonuniform_scale(
+                        self.body.half_sizes.x,
+                        self.body.half_sizes.y,
+                        self.body.half_sizes.z,
+                    ))
+                .into(),
+            },
+        );
+    }
+}
+
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct LoadObject {
+    pub body: Box,
+}
+
+impl LoadObject {
+    fn render(&self, rules: &GameData, igs: &mut InstanceGroups) {
+        igs.render(
+            rules.load_model,
+            InstanceRaw {
+                model: (Mat4::from_translation(self.body.c.to_vec())
+                    * Mat4::from_nonuniform_scale(
+                        self.body.half_sizes.x,
+                        self.body.half_sizes.y,
+                        self.body.half_sizes.z,
+                    ))
+                .into(),
+            },
+        );
+    }
+}
+
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct ScoreObject {
     pub body: Box,
 }
@@ -320,10 +364,10 @@ pub struct Audio {
 // #[derive(Serialize, Deserialize, Debug)]
 // #[derive(Debug)]
 struct Game<Cam: Camera> {
-    start: MenuObject,
+    start: StartObject,
     scores: ScoreObject,
     play_again: MenuObject,
-    load_save: MenuObject,
+    load_save: LoadObject,
     wall: Wall,
     floor: Platform,
     // bounds: Vec<Platform>,
@@ -360,6 +404,8 @@ struct GameData {
     player_model: engine3d::assets::ModelRef,
     camera_model: engine3d::assets::ModelRef,
     menu_object_model: engine3d::assets::ModelRef,
+    start_model: engine3d::assets::ModelRef,
+    load_model: engine3d::assets::ModelRef,
     score_models: Vec<engine3d::assets::ModelRef>,
 }
 
@@ -413,7 +459,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
     fn start(engine: &mut Engine) -> (Self, Self::StaticData) {
         // create menu objects
         let menu_object_half_sizes = Vec3::new(MBHS, MBHS, MBHS);
-        let start = MenuObject {
+        let start = StartObject {
             body: Box {
                 c: Pos3::new(3.0, MBHS, 0.0),
                 axes: Matrix3::one(),
@@ -434,7 +480,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 half_sizes: menu_object_half_sizes,
             },
         };
-        let load_save = MenuObject {
+        let load_save = LoadObject {
             body: Box {
                 c: Pos3::new(0.0, MBHS, 3.0),
                 axes: Matrix3::one(),
@@ -493,6 +539,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
         let floor_model = engine.load_model("floor.obj");
         let player_model = engine.load_model("cube.obj");
         let camera_model = engine.load_model("sphere.obj");
+        let start_model = engine.load_model("start.obj");
+        let load_model = engine.load_model("load.obj");
         let score_models = vec![
             engine.load_model("score0.obj"),
             engine.load_model("score1.obj"),
@@ -573,6 +621,8 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 platform_model: floor_model,
                 player_model,
                 camera_model,
+                start_model,
+                load_model,
                 score_models,
             },
         )
