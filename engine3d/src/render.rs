@@ -2,6 +2,7 @@ use crate::anim::{self, DrawAnimated};
 use crate::assets::{Assets, ModelRef};
 use crate::camera::GameCamera;
 use crate::model::*;
+use crate::text;
 use crate::texture;
 use crate::Game;
 use cgmath::SquareMatrix;
@@ -36,6 +37,7 @@ pub(crate) struct Render {
     light_bind_group: wgpu::BindGroup,
     depth_texture: texture::Texture,
     instance_groups: InstanceGroups,
+    // game_text: text::GameText,
 }
 
 impl Render {
@@ -374,6 +376,8 @@ impl Render {
             })
         };
 
+        // let game_text = text::GameText::new("content/SourceSans3-Regular.ttf", &device);
+
         Self {
             surface,
             device,
@@ -398,6 +402,7 @@ impl Render {
             texture_layout: texture_bind_group_layout,
             depth_texture,
             instance_groups: InstanceGroups::new(),
+            // game_text,
         }
     }
 
@@ -512,6 +517,18 @@ impl Render {
                 }
             }
         }
+
+        // self.game_text
+        //     .queue("hello", (0.0, 0.0), [0.0, 0.0, 0.0, 0.0], 10.0);
+
+        // // draw text
+        // self.game_text.render_queued(
+        //     &self.device,
+        //     &mut self.staging_belt,
+        //     &mut encoder,
+        //     &frame.view,
+        //     self.size,
+        // );
 
         // submit
         self.staging_belt.finish();

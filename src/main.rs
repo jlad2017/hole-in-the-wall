@@ -76,14 +76,29 @@ pub struct Wall {
     pub vels: Vec<Vec3>,
     pub rots: Vec<Quat>,
     pub omegas: Vec<Vec3>,
+    pub missing_x: i8,
+    pub missing_y: i8,
     control: (i8, i8),
 }
 
 impl Wall {
-    pub fn generate_components(axes: Mat3) -> Vec<Box> {
-        let mut rng = rand::thread_rng();
-        let missing_x = rng.gen_range(0..WW);
-        let missing_y = rng.gen_range(0..WH);
+    pub fn generate_components(
+        wall_z: f32,
+        axes: Mat3,
+        missing: Option<(i8, i8)>,
+    ) -> (Vec<Box>, i8, i8) {
+        let missing_x = if missing.is_some() {
+            missing.unwrap().0
+        } else {
+            let mut rng = rand::thread_rng();
+            rng.gen_range(0..WW)
+        };
+        let missing_y = if missing.is_some() {
+            missing.unwrap().1
+        } else {
+            let mut rng = rand::thread_rng();
+            rng.gen_range(0..WH)
+        };
 
         let mut boxes = vec![];
         let half_sizes = Vec3::new(WBHS, WBHS, WBHS);
@@ -93,7 +108,7 @@ impl Wall {
                     let c = Pos3::new(
                         x as f32 * 2.0 * WBHS + WBHS - WW as f32 * WBHS,
                         y as f32 * 2.0 * WBHS + WBHS,
-                        WIZ,
+                        wall_z,
                     );
                     boxes.push(Box {
                         c,
@@ -103,7 +118,7 @@ impl Wall {
                 }
             }
         }
-        boxes
+        (boxes, missing_x, missing_y)
     }
 
     fn reset(&mut self, score: i8) {
@@ -114,7 +129,10 @@ impl Wall {
             WallType::Glass
         };
         self.wall_type = wall_type;
-        self.body = Wall::generate_components(Mat3::one());
+        let (boxes, missing_x, missing_y) = Wall::generate_components(WIZ, Mat3::one(), None);
+        self.body = boxes;
+        self.missing_x = missing_x;
+        self.missing_y = missing_y;
         let n_boxes = self.body.len();
         self.vels = vec![WIV * (score + 1) as f32 * WVSF; n_boxes];
         self.rots = vec![Quat::new(1.0, 0.0, 0.0, 0.0); n_boxes];
@@ -298,8 +316,19 @@ struct Game<Cam: Camera> {
     mode: Mode,
     score: i8,
     audio: Audio,
-    // sources: Vec<rodio::Decoder<std::io::BufReader<std::fs::File>>>,
-    // scene: Ambisonic
+    state: GameState, // sources: Vec<rodio::Decoder<std::io::BufReader<std::fs::File>>>,
+                      // scene: Ambisonic
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct GameState {
+    wall_z: f32,
+    missing_x: i8,
+    missing_y: i8,
+    wall_type: WallType,
+    #[serde(with = "Pos3Def")]
+    player_posn: Pos3,
+    score: i8,
 }
 
 struct GameData {
@@ -393,11 +422,13 @@ impl<C: Camera> engine3d::Game for Game<C> {
         // create wall
         // generate wall components
         // let boxes = Wall::generate_components(Matrix3::one());
-        let boxes = Wall::generate_components(Matrix3::one());
+        let (boxes, missing_x, missing_y) = Wall::generate_components(WIZ, Matrix3::one(), None);
         let n_boxes = boxes.len();
         let wall = Wall {
             wall_type: WallType::Glass,
             body: boxes,
+            missing_x,
+            missing_y,
             vels: vec![WIV; n_boxes],
             rots: vec![Quat::new(1.0, 0.0, 0.0, 0.0); n_boxes],
             omegas: vec![Vec3::zero(); n_boxes],
@@ -466,6 +497,15 @@ impl<C: Camera> engine3d::Game for Game<C> {
             sound4: None,
         };
 
+        let state = GameState {
+            wall_z: wall.body[0].c.z,
+            missing_x,
+            missing_y,
+            wall_type: WallType::Glass,
+            player_posn: player.body.c,
+            score: 0,
+        };
+
         // create game
         (
             Self {
@@ -486,6 +526,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 mode: Mode::Menu,
                 score: 0,
                 audio,
+                state
                 // sources: vec![source1],
                 // sources: vec![source1, source2, source3, source4],
             },
@@ -545,10 +586,11 @@ impl<C: Camera> engine3d::Game for Game<C> {
         match self.mode {
             Mode::Menu => {
                 self.ps.clear();
+                self.pl.clear();
                 // collision between player and start object
                 collision::gather_contacts_ab(&pb, &[self.start.body], &mut self.ps);
                 // collision between player and load save object
-                collision::gather_contacts_ab(&pb, &[self.load_save.body], &mut self.ps);
+                collision::gather_contacts_ab(&pb, &[self.load_save.body], &mut self.pl);
             }
             Mode::GamePlay => {
                 self.ww.clear();
@@ -580,13 +622,14 @@ impl<C: Camera> engine3d::Game for Game<C> {
             }
             Mode::EndScreen => {
                 self.ps.clear();
+                self.pl.clear();
                 self.ww.clear();
                 self.fw.clear();
 
                 // player - play again menu object
                 collision::gather_contacts_ab(&pb, &[self.play_again.body], &mut self.ps);
                 // collision between player and load save object
-                collision::gather_contacts_ab(&pb, &[self.load_save.body], &mut self.ps);
+                collision::gather_contacts_ab(&pb, &[self.load_save.body], &mut self.pl);
 
                 // wall - wall
                 collision::gather_contacts_aa(&self.wall.body, &mut self.ww);
@@ -602,6 +645,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     &mut self.fw,
                     true,
                 );
+                println!("player - load: {:?}", self.pl);
             }
         }
         self.player.body = pb[0];
@@ -656,11 +700,6 @@ impl<C: Camera> engine3d::Game for Game<C> {
         if engine.events.key_held(KeyCode::Space) && psn.y + PBHS + v_disp.y <= top_bound {
             self.player.acc += v_disp;
         }
-        if engine.events.key_held(KeyCode::Return) {
-            // let serialized = serde_json::to_string(&self).unwrap();
-            // let mut file = File::create("savefile.txt").unwrap();
-            // file.write_all(&serialized.as_bytes());
-        }
 
         if self.player.acc.magnitude2() > 1.0 {
             self.player.acc = self.player.acc.normalize();
@@ -674,6 +713,19 @@ impl<C: Camera> engine3d::Game for Game<C> {
         } else {
             self.player.omega = Vec3::zero();
         }
+
+        // save game state
+        if self.mode == Mode::GamePlay && engine.events.key_pressed(KeyCode::Return) {
+            let serialized = serde_json::to_string(&self.state).unwrap();
+            let mut file = File::create("savefile.txt").unwrap();
+            file.write_all(&serialized.as_bytes()).unwrap();
+        }
+        // update game state
+        self.state.wall_z = self.wall.body[0].c.z;
+        self.state.missing_x = self.wall.missing_x;
+        self.state.missing_y = self.wall.missing_y;
+        self.state.player_posn = self.player.body.c;
+        self.state.score = self.score;
 
         // orbit camera
         self.camera.update(&engine.events, self.player.body.c);
@@ -725,7 +777,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 None => {
                     let file = std::fs::File::open("content/boxMovement.wav").unwrap();
                     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
-                    let source = source.repeat_infinite();
+                    let source = source.amplify(0.25).repeat_infinite();
                     let sound = self
                         .audio
                         .scene
@@ -735,6 +787,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
             }
         }
 
+        // handle game transitions
         match self.mode {
             Mode::Menu => {
                 // if player hits start menu object, start game
@@ -745,7 +798,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     // start playing wall sound
                     let file = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
                     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
-                    let source = source.repeat_infinite();
+                    let source = source.amplify(3.0).repeat_infinite();
                     let sound = self
                         .audio
                         .scene
@@ -754,7 +807,17 @@ impl<C: Camera> engine3d::Game for Game<C> {
                 }
                 // if player hits load save object, load save
                 if !self.pl.is_empty() {
-                    // self.load_game();
+                    self.mode = Mode::GamePlay;
+                    self.load_game();
+                    // start playing wall sound
+                    let file = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
+                    let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                    let source = source.amplify(3.0).repeat_infinite();
+                    let sound = self
+                        .audio
+                        .scene
+                        .play_at(source.convert_samples(), [0.0, 0.0, WIZ]);
+                    self.audio.sound4 = Some(sound);
                 }
             }
             Mode::GamePlay => {
@@ -783,6 +846,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                         WallType::Diamond => {
                             let file = std::fs::File::open("content/wallBreakSound.wav").unwrap();
                             let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                            let source = source.amplify(1.5);
                             let sound = self
                                 .audio
                                 .scene
@@ -793,6 +857,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                             let file =
                                 std::fs::File::open("content/wallBreakSoundGlass.mp3").unwrap();
                             let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                            let source = source.amplify(1.5);
                             let sound = self
                                 .audio
                                 .scene
@@ -812,6 +877,7 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     self.audio.sound4.as_mut().unwrap().stop();
                     let file = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
                     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                    let source = source.amplify(3.0);
                     let sound = self
                         .audio
                         .scene
@@ -829,6 +895,21 @@ impl<C: Camera> engine3d::Game for Game<C> {
                     // start playing wall sound
                     let file = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
                     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                    let source = source.amplify(3.0);
+                    let sound = self
+                        .audio
+                        .scene
+                        .play_at(source.convert_samples(), [0.0, 0.0, WIZ]);
+                    self.audio.sound4 = Some(sound);
+                }
+                // if player hits load save object, load save
+                if !self.pl.is_empty() {
+                    self.mode = Mode::GamePlay;
+                    self.load_game();
+                    // start playing wall sound
+                    let file = std::fs::File::open("content/wallTrainSound.mp3").unwrap();
+                    let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+                    let source = source.amplify(3.0).repeat_infinite();
                     let sound = self
                         .audio
                         .scene
@@ -853,13 +934,28 @@ impl<C: Camera> engine3d::Game for Game<C> {
         self.camera.update_camera(engine.camera_mut());
     }
     fn load_game(&mut self) {
-        //     let file = File::open("savefile.txt").unwrap();
-        //     let mut buf_reader = BufReader::new(file);
-        //     // let mut contents = String::new();
-        //     // buf_reader.read_to_string(&mut contents);
-        //     // let save_state = serde_json::from_str(&contents).unwrap();
-        //     let save_state = serde_json::from_reader(buf_reader).unwrap();
-        //     self = save_state;
+        let file = File::open("savefile.txt").unwrap();
+        let buf_reader = BufReader::new(file);
+        let save_state: GameState = serde_json::from_reader(buf_reader).unwrap();
+
+        // generate wall
+        let (boxes, missing_x, missing_y) = Wall::generate_components(
+            save_state.wall_z,
+            Matrix3::one(),
+            Some((save_state.missing_x, save_state.missing_y)),
+        );
+        self.wall.body = boxes;
+        self.wall.missing_x = missing_x;
+        self.wall.missing_y = missing_y;
+        let n_boxes = self.wall.body.len();
+        self.wall.vels = vec![WIV * (save_state.score + 1) as f32 * WVSF; n_boxes];
+        self.wall.rots = vec![Quat::new(1.0, 0.0, 0.0, 0.0); n_boxes];
+        self.wall.omegas = vec![Vec3::zero(); n_boxes];
+        self.wall.control = (0, 0);
+
+        // load player posn and score
+        self.player.body.c = save_state.player_posn;
+        self.score = save_state.score;
     }
 }
 

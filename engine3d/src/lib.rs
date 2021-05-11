@@ -11,6 +11,7 @@ pub mod collision;
 pub mod events;
 pub mod geom;
 pub mod model;
+pub mod text;
 pub mod texture;
 use events::Events;
 pub mod render;
